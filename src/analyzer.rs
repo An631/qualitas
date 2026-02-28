@@ -12,11 +12,11 @@ use std::collections::HashSet;
 use crate::metrics::{
     cognitive_flow::analyze_cfc_body,
     data_complexity::analyze_dci_body,
-    dependencies::{analyze_file_dependencies, collect_imported_names},
+    dependencies::{analyze_file_dependencies, analyze_function_dependencies, collect_imported_names},
     identifier_refs::analyze_irc_body,
     structural::{analyze_structural_body, compute_sm_raw},
 };
-use crate::parser::ast::parse_source;
+use crate::parser::ast::{byte_to_line, parse_source};
 use crate::scorer::{
     composite::{aggregate_scores, compute_score},
     thresholds::{generate_flags, grade_from_score},
@@ -47,23 +47,25 @@ pub fn analyze_source_str(
     let program = &parse_result.program;
 
     // Collect all function bodies in one pass
-    let mut fn_collector = FnBodyCollector::new(source);
+    let mut fn_collector = FnBodyCollector::new(source, &imported_names);
     fn_collector.visit_program(program);
+
+    // Capture counts before partial moves below
+    let fn_count = fn_collector.fn_count;
+    let class_count = fn_collector.class_count;
 
     // Build function reports
     let function_reports: Vec<FunctionQualityReport> = fn_collector
         .functions
         .into_iter()
-        .map(|fi| build_fn_report(fi, &imported_names, profile, weights_ref, refactoring_threshold))
+        .map(|fi| build_fn_report(fi, profile, weights_ref, refactoring_threshold))
         .collect();
 
     // Build class reports
     let class_reports: Vec<ClassQualityReport> = fn_collector
         .classes
         .into_iter()
-        .map(|ci| {
-            build_class_report(ci, &imported_names, profile, weights_ref, refactoring_threshold)
-        })
+        .map(|ci| build_class_report(ci, profile, weights_ref, refactoring_threshold))
         .collect();
 
     // File-level score
@@ -100,8 +102,8 @@ pub fn analyze_source_str(
         classes: class_reports,
         file_dependencies: file_deps,
         total_lines: source.lines().count() as u32,
-        function_count: fn_collector.fn_count,
-        class_count: fn_collector.class_count,
+        function_count: fn_count,
+        class_count,
         flagged_function_count: flagged_fn_count,
     })
 }
@@ -111,26 +113,29 @@ pub fn analyze_source_str(
 struct CollectedFunction {
     name: String,
     inferred_name: Option<String>,
-    start: u32,
-    end: u32,
+    /// 1-based line number of function start
+    start_line: u32,
+    /// 1-based line number of function end
+    end_line: u32,
     is_async: bool,
     is_generator: bool,
-    // Metrics computed inline (param_count lives in sm.parameter_count)
     cfc: CognitiveFlowResult,
     dci: DataComplexityResult,
     irc: IdentifierRefResult,
+    dc: DependencyCouplingResult,
     sm: StructuralResult,
 }
 
 struct CollectedClass {
     name: String,
-    start: u32,
-    end: u32,
+    start_line: u32,
+    end_line: u32,
     methods: Vec<CollectedFunction>,
 }
 
 struct FnBodyCollector<'src> {
     source: &'src str,
+    imported_names: &'src HashSet<String>,
     functions: Vec<CollectedFunction>,
     classes: Vec<CollectedClass>,
     fn_count: u32,
@@ -139,9 +144,10 @@ struct FnBodyCollector<'src> {
 }
 
 impl<'src> FnBodyCollector<'src> {
-    fn new(source: &'src str) -> Self {
+    fn new(source: &'src str, imported_names: &'src HashSet<String>) -> Self {
         Self {
             source,
+            imported_names,
             functions: Vec::new(),
             classes: Vec::new(),
             fn_count: 0,
@@ -157,31 +163,77 @@ impl<'src> FnBodyCollector<'src> {
         inferred_name: Option<String>,
     ) -> CollectedFunction {
         let param_count = func.params.items.len() as u32;
-        let (cfc, dci, irc, sm) = if let Some(body) = &func.body {
+        let start_line = byte_to_line(self.source, func.span.start);
+        let end_line = byte_to_line(self.source, func.span.end);
+
+        let (cfc, dci, irc, dc, sm) = if let Some(body) = &func.body {
             let cfc = analyze_cfc_body(body, name);
             let dci = analyze_dci_body(body);
             let irc = analyze_irc_body(body, self.source);
-            let sm = analyze_structural_body(body, self.source, func.span.start, func.span.end, param_count);
-            (cfc, dci, irc, sm)
+            let dc = analyze_function_dependencies(body, self.imported_names);
+            let sm = analyze_structural_body(
+                body,
+                self.source,
+                func.span.start,
+                func.span.end,
+                param_count,
+            );
+            (cfc, dci, irc, dc, sm)
         } else {
             (
-                CognitiveFlowResult { score: 0, nesting_penalty: 0, base_increments: 0, async_penalty: 0, max_nesting_depth: 0 },
-                DataComplexityResult { halstead: HalsteadCounts { distinct_operators: 0, distinct_operands: 0, total_operators: 0, total_operands: 0 }, difficulty: 0.0, volume: 0.0, effort: 0.0, raw_score: 0.0 },
+                CognitiveFlowResult {
+                    score: 0,
+                    nesting_penalty: 0,
+                    base_increments: 0,
+                    async_penalty: 0,
+                    max_nesting_depth: 0,
+                },
+                DataComplexityResult {
+                    halstead: HalsteadCounts {
+                        distinct_operators: 0,
+                        distinct_operands: 0,
+                        total_operators: 0,
+                        total_operands: 0,
+                    },
+                    difficulty: 0.0,
+                    volume: 0.0,
+                    effort: 0.0,
+                    raw_score: 0.0,
+                },
                 IdentifierRefResult { total_irc: 0.0, hotspots: vec![] },
-                StructuralResult { loc: 0, total_lines: 0, parameter_count: param_count, max_nesting_depth: 0, return_count: 0, method_count: None, raw_score: 0.0 },
+                DependencyCouplingResult {
+                    import_count: 0,
+                    distinct_sources: 0,
+                    external_ratio: 0.0,
+                    external_packages: vec![],
+                    internal_modules: vec![],
+                    distinct_api_calls: 0,
+                    closure_captures: 0,
+                    raw_score: 0.0,
+                },
+                StructuralResult {
+                    loc: 0,
+                    total_lines: 0,
+                    parameter_count: param_count,
+                    max_nesting_depth: 0,
+                    return_count: 0,
+                    method_count: None,
+                    raw_score: 0.0,
+                },
             )
         };
 
         CollectedFunction {
             name: name.to_string(),
             inferred_name,
-            start: func.span.start,
-            end: func.span.end,
+            start_line,
+            end_line,
             is_async: func.r#async,
             is_generator: func.generator,
             cfc,
             dci,
             irc,
+            dc,
             sm,
         }
     }
@@ -198,7 +250,12 @@ impl<'src> FnBodyCollector<'src> {
 
 impl<'a> Visit<'a> for FnBodyCollector<'_> {
     fn visit_function(&mut self, func: &Function<'a>, _flags: ScopeFlags) {
-        let name = func.id.as_ref().map(|id| id.name.as_str()).unwrap_or("(anonymous)").to_string();
+        let name = func
+            .id
+            .as_ref()
+            .map(|id| id.name.as_str())
+            .unwrap_or("(anonymous)")
+            .to_string();
         let cf = self.analyze_fn(func, &name, None);
         self.push_fn(cf);
         // Don't recurse into nested functions — they're collected separately at top level
@@ -224,25 +281,34 @@ impl<'a> Visit<'a> for FnBodyCollector<'_> {
                     return;
                 }
                 Expression::ArrowFunctionExpression(arrow) => {
-                    // Collect arrow function as a named function
                     let param_count = arrow.params.items.len() as u32;
                     let inferred = Some(format!("const {name} = "));
+                    let start_line = byte_to_line(self.source, arrow.span.start);
+                    let end_line = byte_to_line(self.source, arrow.span.end);
                     // arrow.body is Box<'a, FunctionBody<'a>>, deref directly
                     let body: &FunctionBody = &*arrow.body;
                     let cfc = analyze_cfc_body(body, &name);
                     let dci = analyze_dci_body(body);
                     let irc = analyze_irc_body(body, self.source);
-                    let sm = analyze_structural_body(body, self.source, arrow.span.start, arrow.span.end, param_count);
+                    let dc = analyze_function_dependencies(body, self.imported_names);
+                    let sm = analyze_structural_body(
+                        body,
+                        self.source,
+                        arrow.span.start,
+                        arrow.span.end,
+                        param_count,
+                    );
                     let cf = CollectedFunction {
                         name: name.clone(),
                         inferred_name: inferred,
-                        start: arrow.span.start,
-                        end: arrow.span.end,
+                        start_line,
+                        end_line,
                         is_async: arrow.r#async,
                         is_generator: false,
                         cfc,
                         dci,
                         irc,
+                        dc,
                         sm,
                     };
                     self.push_fn(cf);
@@ -257,11 +323,18 @@ impl<'a> Visit<'a> for FnBodyCollector<'_> {
     }
 
     fn visit_class(&mut self, class: &Class<'a>) {
-        let name = class.id.as_ref().map(|id| id.name.as_str()).unwrap_or("(anonymous class)").to_string();
+        let name = class
+            .id
+            .as_ref()
+            .map(|id| id.name.as_str())
+            .unwrap_or("(anonymous class)")
+            .to_string();
+        let start_line = byte_to_line(self.source, class.span.start);
+        let end_line = byte_to_line(self.source, class.span.end);
         let cc = CollectedClass {
             name,
-            start: class.span.start,
-            end: class.span.end,
+            start_line,
+            end_line,
             methods: Vec::new(),
         };
         let idx = self.classes.len();
@@ -280,27 +353,15 @@ impl<'a> Visit<'a> for FnBodyCollector<'_> {
 
 fn build_fn_report(
     cf: CollectedFunction,
-    _imported_names: &HashSet<String>, // TODO: wire up function-level DC analysis
     profile: Option<&str>,
     weights: Option<&WeightConfig>,
     refactoring_threshold: f64,
 ) -> FunctionQualityReport {
-    let dc = DependencyCouplingResult {
-        import_count: 0,
-        distinct_sources: 0,
-        external_ratio: 0.0,
-        external_packages: vec![],
-        internal_modules: vec![],
-        distinct_api_calls: 0,
-        closure_captures: 0,
-        raw_score: 0.0,
-    };
-
     let metrics = MetricBreakdown {
         cognitive_flow: cf.cfc,
         data_complexity: cf.dci,
         identifier_reference: cf.irc,
-        dependency_coupling: dc,
+        dependency_coupling: cf.dc,
         structural: cf.sm,
     };
 
@@ -320,8 +381,8 @@ fn build_fn_report(
         score_breakdown: breakdown,
         location: SourceLocation {
             file: String::new(),
-            start_line: cf.start,
-            end_line: cf.end,
+            start_line: cf.start_line,
+            end_line: cf.end_line,
             start_col: 0,
             end_col: 0,
         },
@@ -332,7 +393,6 @@ fn build_fn_report(
 
 fn build_class_report(
     cc: CollectedClass,
-    imported_names: &HashSet<String>,
     profile: Option<&str>,
     weights: Option<&WeightConfig>,
     refactoring_threshold: f64,
@@ -340,7 +400,7 @@ fn build_class_report(
     let method_reports: Vec<FunctionQualityReport> = cc
         .methods
         .into_iter()
-        .map(|m| build_fn_report(m, imported_names, profile, weights, refactoring_threshold))
+        .map(|m| build_fn_report(m, profile, weights, refactoring_threshold))
         .collect();
 
     let method_scores: Vec<(f64, u32)> = method_reports
@@ -384,8 +444,8 @@ fn build_class_report(
         methods: method_reports,
         location: SourceLocation {
             file: String::new(),
-            start_line: cc.start,
-            end_line: cc.end,
+            start_line: cc.start_line,
+            end_line: cc.end_line,
             start_col: 0,
             end_col: 0,
         },
