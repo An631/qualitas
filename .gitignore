@@ -1,0 +1,19 @@
+# Rust build artifacts
+/target/
+Cargo.lock
+
+# Node.js
+node_modules/
+npm-debug.log*
+
+# Build output
+/dist/
+*.node
+
+# IDE
+.DS_Store
+.vscode/
+*.swp
+
+# Test coverage
+/coverage/
