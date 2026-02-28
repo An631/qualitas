@@ -12,7 +12,8 @@ npm-debug.log*
 
 # IDE
 .DS_Store
-.vscode/
+.vscode/*
+!.vscode/settings.json
 *.swp
 
 # Test coverage

@@ -6,7 +6,10 @@ use oxc_allocator::Allocator;
 use oxc_span::SourceType;
 use oxc_syntax::scope::ScopeFlags;
 
-/// Info about a parsed function boundary, used by all metrics.
+/// Info about a parsed function boundary.
+// Fields are read by BoundaryCollector internally; stored in ParsedFile for future
+// use when proper per-function location tracking is wired into the analyzer.
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct FunctionInfo {
     pub name: String,
@@ -20,6 +23,7 @@ pub struct FunctionInfo {
     pub depth: u32,
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct ClassInfo {
     pub name: String,
@@ -29,6 +33,10 @@ pub struct ClassInfo {
 }
 
 /// Parsed representation of a source file.
+// `source`, `top_level_functions`, and `classes` are populated but currently
+// only `import_records` is consumed by the analyzer. The others are reserved
+// for future location-tracking and class-level dependency analysis.
+#[allow(dead_code)]
 pub struct ParsedFile {
     pub source: String,
     pub top_level_functions: Vec<FunctionInfo>,

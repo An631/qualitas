@@ -60,6 +60,8 @@ pub fn collect_imported_names(imports: &[ImportRecord]) -> HashSet<String> {
 }
 
 /// Analyze function-level API call patterns.
+// TODO: wire this into analyzer.rs build_fn_report() to replace the zero-stub DC result.
+#[allow(dead_code)]
 pub fn analyze_function_dependencies(
     body: &FunctionBody<'_>,
     imported_names: &HashSet<String>,

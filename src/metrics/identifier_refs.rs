@@ -136,29 +136,26 @@ pub fn analyze_irc_body<'a>(body: &FunctionBody<'a>, source: &str) -> Identifier
     visitor.compute()
 }
 
-/// Analyze IRC from source (test helper).
-pub fn analyze_irc_from_source(source: &str) -> IdentifierRefResult {
-    use oxc_allocator::Allocator;
-    use oxc_ast::Visit;
-    use oxc_parser::Parser;
-    use oxc_span::SourceType;
-
-    let alloc = Allocator::default();
-    let st = SourceType::default().with_typescript(true).with_module(true);
-    let result = Parser::new(&alloc, source, st).parse();
-    for stmt in &result.program.body {
-        if let Statement::FunctionDeclaration(f) = stmt {
-            if let Some(body) = &f.body {
-                return analyze_irc_body(body, source);
-            }
-        }
-    }
-    IdentifierRefResult { total_irc: 0.0, hotspots: vec![] }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use oxc_allocator::Allocator;
+    use oxc_parser::Parser;
+    use oxc_span::SourceType;
+
+    fn analyze_irc_from_source(source: &str) -> IdentifierRefResult {
+        let alloc = Allocator::default();
+        let st = SourceType::default().with_typescript(true).with_module(true);
+        let result = Parser::new(&alloc, source, st).parse();
+        for stmt in &result.program.body {
+            if let Statement::FunctionDeclaration(f) = stmt {
+                if let Some(body) = &f.body {
+                    return analyze_irc_body(body, source);
+                }
+            }
+        }
+        IdentifierRefResult { total_irc: 0.0, hotspots: vec![] }
+    }
 
     #[test]
     fn unused_variable_is_zero() {

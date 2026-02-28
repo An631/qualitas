@@ -233,6 +233,8 @@ pub struct FileQualityReport {
     pub flagged_function_count: u32,
 }
 
+// TODO: construct these from Rust when analyze_project is moved to the native layer.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectSummary {
@@ -245,6 +247,7 @@ pub struct ProjectSummary {
     pub grade_distribution: GradeDistribution,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GradeDistribution {
@@ -255,6 +258,7 @@ pub struct GradeDistribution {
     pub f: u32,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectQualityReport {

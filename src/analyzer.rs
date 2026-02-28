@@ -10,15 +10,13 @@ use oxc_syntax::scope::ScopeFlags;
 use std::collections::HashSet;
 
 use crate::metrics::{
-    cognitive_flow::{analyze_cfc_body, CfcVisitor},
+    cognitive_flow::analyze_cfc_body,
     data_complexity::analyze_dci_body,
-    dependencies::{
-        analyze_file_dependencies, analyze_function_dependencies, collect_imported_names,
-    },
+    dependencies::{analyze_file_dependencies, collect_imported_names},
     identifier_refs::analyze_irc_body,
     structural::{analyze_structural_body, compute_sm_raw},
 };
-use crate::parser::ast::{byte_to_line, parse_source, ClassInfo, FunctionInfo};
+use crate::parser::ast::parse_source;
 use crate::scorer::{
     composite::{aggregate_scores, compute_score},
     thresholds::{generate_flags, grade_from_score},
@@ -53,14 +51,14 @@ pub fn analyze_source_str(
     fn_collector.visit_program(program);
 
     // Build function reports
-    let mut function_reports: Vec<FunctionQualityReport> = fn_collector
+    let function_reports: Vec<FunctionQualityReport> = fn_collector
         .functions
         .into_iter()
         .map(|fi| build_fn_report(fi, &imported_names, profile, weights_ref, refactoring_threshold))
         .collect();
 
     // Build class reports
-    let mut class_reports: Vec<ClassQualityReport> = fn_collector
+    let class_reports: Vec<ClassQualityReport> = fn_collector
         .classes
         .into_iter()
         .map(|ci| {
@@ -117,8 +115,7 @@ struct CollectedFunction {
     end: u32,
     is_async: bool,
     is_generator: bool,
-    param_count: u32,
-    // Metrics computed inline
+    // Metrics computed inline (param_count lives in sm.parameter_count)
     cfc: CognitiveFlowResult,
     dci: DataComplexityResult,
     irc: IdentifierRefResult,
@@ -139,7 +136,6 @@ struct FnBodyCollector<'src> {
     fn_count: u32,
     class_count: u32,
     class_stack: Vec<usize>,
-    depth: u32,
 }
 
 impl<'src> FnBodyCollector<'src> {
@@ -151,7 +147,6 @@ impl<'src> FnBodyCollector<'src> {
             fn_count: 0,
             class_count: 0,
             class_stack: Vec::new(),
-            depth: 0,
         }
     }
 
@@ -184,7 +179,6 @@ impl<'src> FnBodyCollector<'src> {
             end: func.span.end,
             is_async: func.r#async,
             is_generator: func.generator,
-            param_count,
             cfc,
             dci,
             irc,
@@ -203,7 +197,7 @@ impl<'src> FnBodyCollector<'src> {
 }
 
 impl<'a> Visit<'a> for FnBodyCollector<'_> {
-    fn visit_function(&mut self, func: &Function<'a>, flags: ScopeFlags) {
+    fn visit_function(&mut self, func: &Function<'a>, _flags: ScopeFlags) {
         let name = func.id.as_ref().map(|id| id.name.as_str()).unwrap_or("(anonymous)").to_string();
         let cf = self.analyze_fn(func, &name, None);
         self.push_fn(cf);
@@ -239,7 +233,6 @@ impl<'a> Visit<'a> for FnBodyCollector<'_> {
                     let dci = analyze_dci_body(body);
                     let irc = analyze_irc_body(body, self.source);
                     let sm = analyze_structural_body(body, self.source, arrow.span.start, arrow.span.end, param_count);
-                    let (cfc, dci, irc, sm) = (cfc, dci, irc, sm);
                     let cf = CollectedFunction {
                         name: name.clone(),
                         inferred_name: inferred,
@@ -247,7 +240,6 @@ impl<'a> Visit<'a> for FnBodyCollector<'_> {
                         end: arrow.span.end,
                         is_async: arrow.r#async,
                         is_generator: false,
-                        param_count,
                         cfc,
                         dci,
                         irc,
@@ -288,7 +280,7 @@ impl<'a> Visit<'a> for FnBodyCollector<'_> {
 
 fn build_fn_report(
     cf: CollectedFunction,
-    imported_names: &HashSet<String>,
+    _imported_names: &HashSet<String>, // TODO: wire up function-level DC analysis
     profile: Option<&str>,
     weights: Option<&WeightConfig>,
     refactoring_threshold: f64,

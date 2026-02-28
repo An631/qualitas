@@ -169,28 +169,6 @@ impl<'a> Visit<'a> for DciVisitor {
     }
 }
 
-/// Analyze DCI for a function body given source.
-pub fn analyze_dci_from_source(source: &str) -> DataComplexityResult {
-    use oxc_allocator::Allocator;
-    use oxc_ast::Visit;
-    use oxc_parser::Parser;
-    use oxc_span::SourceType;
-
-    let alloc = Allocator::default();
-    let st = SourceType::default().with_typescript(true).with_module(true);
-    let result = Parser::new(&alloc, source, st).parse();
-    for stmt in &result.program.body {
-        if let Statement::FunctionDeclaration(f) = stmt {
-            let mut v = DciVisitor::new();
-            if let Some(body) = &f.body {
-                v.visit_function_body(body);
-            }
-            return v.compute();
-        }
-    }
-    DciVisitor::new().compute()
-}
-
 /// Analyze DCI for a raw FunctionBody.
 pub fn analyze_dci_body<'a>(body: &FunctionBody<'a>) -> DataComplexityResult {
     let mut v = DciVisitor::new();
@@ -201,6 +179,26 @@ pub fn analyze_dci_body<'a>(body: &FunctionBody<'a>) -> DataComplexityResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use oxc_allocator::Allocator;
+    use oxc_ast::Visit;
+    use oxc_parser::Parser;
+    use oxc_span::SourceType;
+
+    fn analyze_dci_from_source(source: &str) -> DataComplexityResult {
+        let alloc = Allocator::default();
+        let st = SourceType::default().with_typescript(true).with_module(true);
+        let result = Parser::new(&alloc, source, st).parse();
+        for stmt in &result.program.body {
+            if let Statement::FunctionDeclaration(f) = stmt {
+                let mut v = DciVisitor::new();
+                if let Some(body) = &f.body {
+                    v.visit_function_body(body);
+                }
+                return v.compute();
+            }
+        }
+        DciVisitor::new().compute()
+    }
 
     #[test]
     fn empty_function_zeroes() {

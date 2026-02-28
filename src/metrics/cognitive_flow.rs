@@ -197,29 +197,6 @@ impl<'a> Visit<'a> for CfcVisitor {
     }
 }
 
-/// Run CFC analysis on a function body given source text (for test access to metrics).
-pub fn analyze_function_cfc_from_source(source: &str, fn_name: &str) -> CognitiveFlowResult {
-    use oxc_allocator::Allocator;
-    use oxc_ast::Visit;
-    use oxc_parser::Parser;
-    use oxc_span::SourceType;
-
-    let alloc = Allocator::default();
-    let st = SourceType::default().with_typescript(true).with_module(true);
-    let result = Parser::new(&alloc, source, st).parse();
-
-    for stmt in &result.program.body {
-        if let Statement::FunctionDeclaration(f) = stmt {
-            let mut visitor = CfcVisitor::new(fn_name);
-            if let Some(body) = &f.body {
-                visitor.visit_function_body(body);
-            }
-            return visitor.result;
-        }
-    }
-    CfcVisitor::new(fn_name).result
-}
-
 /// Run CFC on a raw FunctionBody AST node.
 pub fn analyze_cfc_body<'a>(body: &FunctionBody<'a>, fn_name: &str) -> CognitiveFlowResult {
     let mut visitor = CfcVisitor::new(fn_name);
@@ -230,6 +207,26 @@ pub fn analyze_cfc_body<'a>(body: &FunctionBody<'a>, fn_name: &str) -> Cognitive
 #[cfg(test)]
 mod tests {
     use super::*;
+    use oxc_allocator::Allocator;
+    use oxc_ast::Visit;
+    use oxc_parser::Parser;
+    use oxc_span::SourceType;
+
+    fn analyze_function_cfc_from_source(source: &str, fn_name: &str) -> CognitiveFlowResult {
+        let alloc = Allocator::default();
+        let st = SourceType::default().with_typescript(true).with_module(true);
+        let result = Parser::new(&alloc, source, st).parse();
+        for stmt in &result.program.body {
+            if let Statement::FunctionDeclaration(f) = stmt {
+                let mut visitor = CfcVisitor::new(fn_name);
+                if let Some(body) = &f.body {
+                    visitor.visit_function_body(body);
+                }
+                return visitor.result;
+            }
+        }
+        CfcVisitor::new(fn_name).result
+    }
 
     #[test]
     fn empty_function_is_zero() {

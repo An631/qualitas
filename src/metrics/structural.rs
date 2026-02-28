@@ -86,38 +86,35 @@ pub fn compute_sm_raw(loc: u32, params: u32, nesting: u32, returns: u32) -> f64 
         + SM_RETURNS_WEIGHT * (returns as f64 / NORM_SM_RETURNS)
 }
 
-/// Test helper.
-pub fn analyze_structural_from_source(source: &str) -> StructuralResult {
-    use oxc_allocator::Allocator;
-    use oxc_ast::Visit;
-    use oxc_parser::Parser;
-    use oxc_span::SourceType;
-
-    let alloc = Allocator::default();
-    let st = SourceType::default().with_typescript(true).with_module(true);
-    let result = Parser::new(&alloc, source, st).parse();
-    for stmt in &result.program.body {
-        if let Statement::FunctionDeclaration(f) = stmt {
-            if let Some(body) = &f.body {
-                let param_count = f.params.items.len() as u32;
-                return analyze_structural_body(body, source, f.span.start, f.span.end, param_count);
-            }
-        }
-    }
-    StructuralResult {
-        loc: 0,
-        total_lines: 0,
-        parameter_count: 0,
-        max_nesting_depth: 0,
-        return_count: 0,
-        method_count: None,
-        raw_score: 0.0,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use oxc_allocator::Allocator;
+    use oxc_parser::Parser;
+    use oxc_span::SourceType;
+
+    fn analyze_structural_from_source(source: &str) -> StructuralResult {
+        let alloc = Allocator::default();
+        let st = SourceType::default().with_typescript(true).with_module(true);
+        let result = Parser::new(&alloc, source, st).parse();
+        for stmt in &result.program.body {
+            if let Statement::FunctionDeclaration(f) = stmt {
+                if let Some(body) = &f.body {
+                    let param_count = f.params.items.len() as u32;
+                    return analyze_structural_body(body, source, f.span.start, f.span.end, param_count);
+                }
+            }
+        }
+        StructuralResult {
+            loc: 0,
+            total_lines: 0,
+            parameter_count: 0,
+            max_nesting_depth: 0,
+            return_count: 0,
+            method_count: None,
+            raw_score: 0.0,
+        }
+    }
 
     #[test]
     fn empty_function() {
