@@ -86,46 +86,72 @@ function renderFunction(fn: FunctionQualityReport, opts: TextReporterOptions): s
 
 // ─── File report ──────────────────────────────────────────────────────────────
 
+function renderFileSummaryLine(report: FileQualityReport): string {
+  const flagCount = report.flaggedFunctionCount;
+  const total = report.functionCount;
+  return (
+    `File: ${gradeColor(report.grade, `${report.grade} — ${report.score.toFixed(1)}`)}` +
+    (flagCount > 0
+      ? pc.red(`  — ${flagCount} of ${total} function(s) need refactoring`)
+      : pc.green(`  — all ${total} function(s) within thresholds`))
+  );
+}
+
 export function renderFileReport(report: FileQualityReport, opts: TextReporterOptions = {}): string {
   const lines: string[] = [];
   const gradeStr = gradeColor(report.grade, report.grade);
+  const scope = opts.scope ?? 'function';
 
   lines.push('');
   lines.push(pc.bold(`qualitas-ts: ${report.filePath}`));
   lines.push(`${scoreBar(report.score)}  score: ${report.score.toFixed(1)}  grade: ${gradeStr}`);
   lines.push('');
 
-  const fns = opts.flaggedOnly
-    ? report.functions.filter(f => f.needsRefactoring)
-    : report.functions;
-
-  for (const fn of fns) {
-    lines.push(renderFunction(fn, opts));
+  if (scope === 'file') {
+    // File-level only: show score header and summary, no function/class detail
+    lines.push(renderFileSummaryLine(report));
+    return lines.join('\n');
   }
 
-  for (const cls of report.classes) {
-    const classFns = opts.flaggedOnly
-      ? cls.methods.filter(m => m.needsRefactoring)
-      : cls.methods;
+  if (scope === 'class') {
+    // Class-level: show class aggregates and their flags, skip standalone functions
+    for (const cls of report.classes) {
+      if (opts.flaggedOnly && !cls.needsRefactoring) continue;
+      lines.push(`  ${pc.cyan(`class ${cls.name}`)}  ${gradeColor(cls.grade, cls.grade)}  score: ${cls.score.toFixed(1)}`);
+      if (cls.flags.length > 0) {
+        lines.push('    ' + pc.dim('Flags:'));
+        for (const flag of cls.flags) {
+          lines.push(renderFlag(flag));
+        }
+      }
+    }
+  } else {
+    // scope: 'function' (default) — full per-function detail
+    const fns = opts.flaggedOnly
+      ? report.functions.filter(f => f.needsRefactoring)
+      : report.functions;
 
-    if (opts.flaggedOnly && classFns.length === 0) continue;
+    for (const fn of fns) {
+      lines.push(renderFunction(fn, opts));
+    }
 
-    lines.push('');
-    lines.push(`  ${pc.cyan(`class ${cls.name}`)}  ${gradeColor(cls.grade, cls.grade)}  score: ${cls.score.toFixed(1)}`);
-    for (const m of classFns) {
-      lines.push(renderFunction(m, opts));
+    for (const cls of report.classes) {
+      const classFns = opts.flaggedOnly
+        ? cls.methods.filter(m => m.needsRefactoring)
+        : cls.methods;
+
+      if (opts.flaggedOnly && classFns.length === 0) continue;
+
+      lines.push('');
+      lines.push(`  ${pc.cyan(`class ${cls.name}`)}  ${gradeColor(cls.grade, cls.grade)}  score: ${cls.score.toFixed(1)}`);
+      for (const m of classFns) {
+        lines.push(renderFunction(m, opts));
+      }
     }
   }
 
   lines.push('');
-  const flagCount = report.flaggedFunctionCount;
-  const total = report.functionCount;
-  lines.push(
-    `File: ${gradeColor(report.grade, `${report.grade} — ${report.score.toFixed(1)}`)}` +
-    (flagCount > 0
-      ? pc.red(`  — ${flagCount} of ${total} function(s) need refactoring`)
-      : pc.green(`  — all ${total} function(s) within thresholds`))
-  );
+  lines.push(renderFileSummaryLine(report));
 
   return lines.join('\n');
 }
@@ -134,6 +160,7 @@ export function renderFileReport(report: FileQualityReport, opts: TextReporterOp
 
 export function renderProjectReport(report: ProjectQualityReport, opts: TextReporterOptions = {}): string {
   const lines: string[] = [];
+  const scope = opts.scope ?? 'function';
 
   lines.push('');
   lines.push(pc.bold(`qualitas-ts project: ${report.dirPath}`));
@@ -151,7 +178,12 @@ export function renderProjectReport(report: ProjectQualityReport, opts: TextRepo
     `${pc.bgRed(pc.white('F:' + s.gradeDistribution.f))}`
   );
 
-  if (report.worstFunctions.length > 0) {
+  if (scope === 'module') {
+    // Module-level: project summary only, no per-file detail
+    return lines.join('\n');
+  }
+
+  if (report.worstFunctions.length > 0 && scope === 'function') {
     lines.push('');
     lines.push(pc.bold('  Worst functions:'));
     for (const fn of report.worstFunctions.slice(0, 5)) {

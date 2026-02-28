@@ -1,0 +1,183 @@
+name: Publish to npm
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ─── Build native binaries per platform ──────────────────────────────────
+  build-native:
+    name: Build ${{ matrix.settings.name }}
+    runs-on: ${{ matrix.settings.host }}
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - name: linux-x64-gnu
+            host: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: qualitas-ts.linux-x64-gnu.node
+
+          - name: linux-arm64-gnu
+            host: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact: qualitas-ts.linux-arm64-gnu.node
+            cross: true
+
+          - name: darwin-x64
+            host: macos-latest
+            target: x86_64-apple-darwin
+            artifact: qualitas-ts.darwin-x64.node
+
+          - name: darwin-arm64
+            host: macos-latest
+            target: aarch64-apple-darwin
+            artifact: qualitas-ts.darwin-arm64.node
+
+          - name: win32-x64-msvc
+            host: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: qualitas-ts.win32-x64-msvc.node
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.settings.target }}
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.settings.name }}
+
+      - name: Install cross-compilation tools (arm64)
+        if: matrix.settings.cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build native addon
+        run: |
+          npm run build -- --target ${{ matrix.settings.target }}
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindings-${{ matrix.settings.name }}
+          path: '*.node'
+          if-no-files-found: error
+
+  # ─── Run tests on built native binaries ──────────────────────────────────
+  test-native:
+    name: Test ${{ matrix.os }}
+    needs: build-native
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            artifact: bindings-linux-x64-gnu
+          - os: macos-latest
+            artifact: bindings-darwin-arm64
+          - os: windows-latest
+            artifact: bindings-win32-x64-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Download native artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: .
+
+      - name: Compile TypeScript
+        run: npm run build:ts
+
+      - name: Run JS tests
+        run: npm test
+
+  # ─── Publish to npm ───────────────────────────────────────────────────────
+  publish:
+    name: Publish to npm
+    needs: test-native
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Download all native artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Move artifacts to npm packages
+        shell: bash
+        run: |
+          for dir in artifacts/bindings-*; do
+            name=$(basename "$dir" | sed 's/bindings-//')
+            mkdir -p "npm/$name"
+            cp "$dir"/*.node "npm/$name/"
+          done
+
+      - name: Compile TypeScript
+        run: npm run build:ts
+
+      - name: Publish platform packages
+        run: |
+          for pkg_dir in npm/*/; do
+            if [ -f "$pkg_dir/package.json" ]; then
+              echo "Publishing $pkg_dir"
+              npm publish "$pkg_dir" --access public
+            fi
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish main package
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*.node
+          generate_release_notes: true

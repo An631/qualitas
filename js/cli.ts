@@ -54,6 +54,7 @@ program
           console.log(renderProjectReport(report, {
             verbose: opts.verbose,
             flaggedOnly: opts.flaggedOnly,
+            scope: opts.scope,
           }));
         }
       } else {
@@ -69,6 +70,7 @@ program
           console.log(renderFileReport(report, {
             verbose: opts.verbose,
             flaggedOnly: opts.flaggedOnly,
+            scope: opts.scope,
           }));
         }
       }

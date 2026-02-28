@@ -284,6 +284,91 @@ export function generateReport(records: any[]): string {
   }));
 });
 
+// ─── Function collection patterns ────────────────────────────────────────────
+
+describe('analyzeSource — function collection patterns', () => {
+  it('collects object literal arrow functions with property key names', skipIfNoBinding(() => {
+    const src = `
+const handlers = {
+  onClick: (e: any) => { console.log(e); return e.target; },
+  onHover: (e: any) => e,
+};
+`;
+    const report = analyzeSource(src, 'obj.ts');
+    expect(report.functions).toHaveLength(2);
+    const names = report.functions.map(f => f.name);
+    expect(names).toContain('onClick');
+    expect(names).toContain('onHover');
+  }));
+
+  it('collects object literal function expressions with property key names', skipIfNoBinding(() => {
+    const src = `
+const api = {
+  fetch: function(url: string) { return url; },
+  post: function(url: string, data: any) { return { url, data }; },
+};
+`;
+    const report = analyzeSource(src, 'api.ts');
+    expect(report.functions).toHaveLength(2);
+    const names = report.functions.map(f => f.name);
+    expect(names).toContain('fetch');
+    expect(names).toContain('post');
+  }));
+
+  it('collects nested object arrows', skipIfNoBinding(() => {
+    const src = `
+const routes = {
+  users: {
+    getById: (id: string) => fetch('/users/' + id),
+    list: () => fetch('/users'),
+  },
+};
+`;
+    const report = analyzeSource(src, 'routes.ts');
+    expect(report.functions).toHaveLength(2);
+    const names = report.functions.map(f => f.name);
+    expect(names).toContain('getById');
+    expect(names).toContain('list');
+  }));
+
+  it('collects export default arrow functions', skipIfNoBinding(() => {
+    const src = `export default (a: number, b: number) => a + b;`;
+    const report = analyzeSource(src, 'default.ts');
+    expect(report.functions).toHaveLength(1);
+    expect(report.functions[0].name).toBe('(default)');
+    expect(report.functions[0].inferredName).toBe('export default ');
+  }));
+
+  it('collects export default named function', skipIfNoBinding(() => {
+    const src = `
+export default function processData(items: any[]) {
+  return items.map(x => x);
+}
+`;
+    const report = analyzeSource(src, 'default_fn.ts');
+    expect(report.functions).toHaveLength(1);
+    expect(report.functions[0].name).toBe('processData');
+  }));
+
+  it('collects class property arrows as class methods', skipIfNoBinding(() => {
+    const src = `
+class EventHandler {
+  handleClick = (e: any) => { return e.target; };
+  static create = () => new EventHandler();
+  regularMethod(x: number) { return x * 2; }
+}
+`;
+    const report = analyzeSource(src, 'handler.ts');
+    expect(report.classes).toHaveLength(1);
+    const methods = report.classes[0].methods;
+    expect(methods).toHaveLength(3);
+    const names = methods.map(m => m.name);
+    expect(names).toContain('handleClick');
+    expect(names).toContain('create');
+    expect(names).toContain('regularMethod');
+  }));
+});
+
 // ─── Arrow functions ──────────────────────────────────────────────────────────
 
 describe('analyzeSource — arrow functions', () => {
@@ -431,5 +516,146 @@ function messy(a: any, b: any, c: any, d: any) {
     const sumPenalties = bd.cfcPenalty + bd.dciPenalty + bd.ircPenalty + bd.dcPenalty + bd.smPenalty;
     expect(Math.abs(sumPenalties - bd.totalPenalty)).toBeLessThan(0.01);
     expect(fn!.score).toBeCloseTo(100 - bd.totalPenalty, 1);
+  }));
+});
+
+// ─── quickScore ───────────────────────────────────────────────────────────────
+
+let quickScore: typeof import('../../js/index').quickScore;
+
+beforeAll(async () => {
+  try {
+    const mod = await import('../../js/index.js');
+    quickScore = mod.quickScore;
+  } catch {
+    // already handled by analyzeSource beforeAll
+  }
+});
+
+describe('quickScore', () => {
+  it('returns compact shape with correct fields', skipIfNoBinding(() => {
+    const src = `export function add(a: number, b: number) { return a + b; }`;
+    const result = quickScore(src, 'add.ts');
+    expect(typeof result.score).toBe('number');
+    expect(['A', 'B', 'C', 'D', 'F']).toContain(result.grade);
+    expect(typeof result.needsRefactoring).toBe('boolean');
+    expect(typeof result.functionCount).toBe('number');
+    expect(typeof result.flaggedFunctionCount).toBe('number');
+    expect(Array.isArray(result.topFlags)).toBe(true);
+  }));
+
+  it('score matches analyzeSource for same input', skipIfNoBinding(() => {
+    const src = `
+export function capitalize(s: string): string {
+  if (!s) return s;
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+`;
+    const quick = quickScore(src, 'cap.ts');
+    const full = analyzeSource(src, 'cap.ts');
+    expect(quick.score).toBeCloseTo(full.score, 1);
+    expect(quick.grade).toBe(full.grade);
+    expect(quick.needsRefactoring).toBe(full.needsRefactoring);
+    expect(quick.functionCount).toBe(full.functionCount);
+    expect(quick.flaggedFunctionCount).toBe(full.flaggedFunctionCount);
+  }));
+
+  it('returns topFlags for code with high complexity indicators', skipIfNoBinding(() => {
+    // Many params + deep nesting triggers flags regardless of composite threshold
+    const src = `
+function processOrders(orders: any[], a: any, b: any, c: any, d: any, e: any) {
+  for (const order of orders) {
+    if (order.status === 'pending') {
+      for (const item of order.items ?? []) {
+        if (item.quantity > 0) {
+          if (item.price > 0) {
+            if (a.check(item)) {
+              if (b.validate(item)) {
+                c.save(item);
+                d.notify(item);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+`;
+    const result = quickScore(src, 'complex.ts');
+    expect(result.functionCount).toBe(1);
+    // Score should be noticeably below perfect for a deeply nested, many-param function
+    expect(result.score).toBeLessThan(90);
+    // topFlags are populated when any function has flags
+    expect(result.topFlags.length).toBeGreaterThan(0);
+  }));
+
+  it('clean code returns score >= 80 and empty topFlags', skipIfNoBinding(() => {
+    const src = `export function clamp(v: number, min: number, max: number) { return Math.min(Math.max(v, min), max); }`;
+    const result = quickScore(src, 'clamp.ts');
+    expect(result.score).toBeGreaterThanOrEqual(80);
+    expect(result.needsRefactoring).toBe(false);
+    expect(result.topFlags).toHaveLength(0);
+  }));
+});
+
+// ─── scope filtering (text reporter) ─────────────────────────────────────────
+
+describe('renderFileReport — scope filtering', () => {
+  let renderFileReport: typeof import('../../js/reporters/text').renderFileReport;
+
+  beforeAll(async () => {
+    const mod = await import('../../js/reporters/text.js');
+    renderFileReport = mod.renderFileReport;
+  });
+
+  it('scope=function (default) includes function names', skipIfNoBinding(() => {
+    const src = `
+export function alpha(x: number) { return x; }
+export function beta(x: number) { return x * 2; }
+`;
+    const report = analyzeSource(src, 'scope.ts');
+    const output = renderFileReport(report, { scope: 'function' });
+    expect(output).toContain('alpha');
+    expect(output).toContain('beta');
+  }));
+
+  it('scope=file omits function names but shows file score', skipIfNoBinding(() => {
+    const src = `
+export function alpha(x: number) { return x; }
+export function beta(x: number) { return x * 2; }
+`;
+    const report = analyzeSource(src, 'scope.ts');
+    const output = renderFileReport(report, { scope: 'file' });
+    // Should NOT contain per-function rows
+    expect(output).not.toMatch(/✓.*alpha/);
+    expect(output).not.toMatch(/✓.*beta/);
+    // Should still contain the file path
+    expect(output).toContain('scope.ts');
+    // Should still show grade info
+    expect(output).toMatch(/[ABCDF] —/);
+  }));
+
+  it('scope=class shows class summary, skips standalone functions', skipIfNoBinding(() => {
+    const src = `
+export function standalone(x: number) { return x; }
+class MyService {
+  compute(x: number) { return x * 2; }
+}
+`;
+    const report = analyzeSource(src, 'cls.ts');
+    const output = renderFileReport(report, { scope: 'class' });
+    // class name should appear
+    expect(output).toContain('MyService');
+    // standalone function row should NOT appear
+    expect(output).not.toMatch(/✓.*standalone|✗.*standalone/);
+  }));
+
+  it('default scope (no option) behaves like scope=function', skipIfNoBinding(() => {
+    const src = `export function gamma(x: number) { return x + 1; }`;
+    const report = analyzeSource(src, 'default.ts');
+    const withExplicit = renderFileReport(report, { scope: 'function' });
+    const withDefault = renderFileReport(report, {});
+    expect(withDefault).toBe(withExplicit);
   }));
 });
