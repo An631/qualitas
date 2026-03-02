@@ -9,9 +9,9 @@ use oxc_ast::visit::walk;
 use oxc_ast::Visit;
 use std::collections::HashSet;
 
-use crate::ir::language::ImportRecord as IrImportRecordType;
 #[cfg(test)]
 use crate::parser::ast::ImportRecord;
+use crate::ir::language::ImportRecord as IrImportRecordType;
 use crate::types::DependencyCouplingResult;
 
 /// Analyze file-level import dependencies (from IR import records).
@@ -138,14 +138,13 @@ pub fn compute_dc_raw(import_count: u32, external_ratio: f64, distinct_api_calls
 // ─── Event-based DC computation ─────────────────────────────────────────────
 
 use crate::ir::events::*;
-use crate::ir::language::ImportRecord as IrImportRecord;
 
 /// Compute function-level DC from a stream of IR events (language-agnostic).
 ///
 /// `imports` provides file-level import context for computing the full DC score.
 pub fn compute_dc_from_events(
     events: &[QualitasEvent],
-    imports: &[IrImportRecord],
+    imports: &[IrImportRecordType],
 ) -> DependencyCouplingResult {
     let mut api_calls: HashSet<String> = HashSet::new();
 
@@ -232,7 +231,7 @@ mod tests {
     #[test]
     fn event_no_api_calls() {
         let events: Vec<QualitasEvent> = vec![];
-        let imports: Vec<IrImportRecord> = vec![];
+        let imports: Vec<IrImportRecordType> = vec![];
         let r = compute_dc_from_events(&events, &imports);
         assert_eq!(r.distinct_api_calls, 0);
         assert_eq!(r.import_count, 0);
@@ -255,7 +254,7 @@ mod tests {
                 method: "readFile".into(),
             }),
         ];
-        let imports = vec![IrImportRecord {
+        let imports = vec![IrImportRecordType {
             source: "fs".into(),
             is_external: true,
             names: vec!["fs".into()],

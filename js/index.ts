@@ -9,6 +9,7 @@ import type {
   Grade,
   GradeDistribution,
   ProjectQualityReport,
+  QuickScore,
 } from './types.js';
 
 // ─── Native binding loader ────────────────────────────────────────────────────
@@ -57,6 +58,18 @@ const DEFAULT_EXCLUDE = ['node_modules', 'dist', 'build', '.git', 'coverage'];
 const TEST_PATTERNS = ['.test.', '.spec.', '.playwright-test.'];
 
 // ─── Public API ───────────────────────────────────────────────────────────────
+
+/**
+ * Fast quality check — returns composite score, grade, refactoring flag, and top flags.
+ * Faster than `analyzeSource` when you only need the summary (skips full metric breakdown).
+ */
+export function quickScore(
+  source: string,
+  fileName = 'anonymous.ts'
+): QuickScore {
+  const binding = getBinding();
+  return JSON.parse(binding.quickScore(source, fileName)) as QuickScore;
+}
 
 /**
  * Analyze a TypeScript/JavaScript source string directly.

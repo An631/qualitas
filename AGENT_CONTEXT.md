@@ -8,7 +8,7 @@
 
 `qualitas-ts` is a standalone npm package at `~/qualitas-ts/` (NOT inside the office-bohemia monorepo). It measures TypeScript/JavaScript code quality using a five-pillar composite Quality Score (0–100, higher = better). The core is written in Rust using `oxc_parser` and distributed via napi-rs as a native Node.js addon.
 
-**Current state:** Fully functional. All 17 Rust unit tests pass. All 6 JS integration tests pass. CLI works end-to-end. One commit pushed to `https://github.com/An631/qualitas`.
+**Current state:** Fully functional. All 17 Rust unit tests pass. All 35 JS integration tests pass. CLI works end-to-end with all options implemented. Published to `https://github.com/An631/qualitas`.
 
 ---
 
@@ -263,16 +263,41 @@ Flag severity: `"warning"` or `"error"`. A metric at grade-C boundary → warnin
 1. First parse: uses `parse_source()` from `parser/ast.rs` to collect import records for file-level dependency analysis
 2. Second parse: creates a fresh `Allocator` + `Parser` for the metric AST visitor pass
 
-`FnBodyCollector` is the main AST visitor that collects functions and classes in one pass:
-- `visit_function` — handles `function foo() {}` and `function() {}` (inside classes)
-- `visit_variable_declarator` — handles `const foo = function() {}` and `const foo = () => {}`
-- `visit_class` — pushes to class_stack, then walks; methods discovered inside go into the class
+`FnBodyCollector` is the main AST visitor that collects functions and classes in one pass.
+
+**Visitor overrides and what they handle:**
+
+| Override | Handles |
+| --- | --- |
+| `visit_function` | `function foo() {}` declarations and `function() {}` expressions |
+| `visit_variable_declarator` | `const foo = () => {}` and `const foo = function() {}` |
+| `visit_class` | pushes/pops `class_stack`; methods go into the current class |
+| `visit_object_expression` | `{ onClick: () => {}, onHover: function() {} }` — uses property key as name; calls `visit_expression` for non-function values |
+| `visit_export_default_declaration` | `export default () => {}` → named `"(default)"`, `export default function foo()` → named `"foo"` |
+| `visit_property_definition` | class property arrows: `class Foo { method = () => {} }` |
+| `visit_method_definition` | class methods — extracts name from `method.key` via `property_key_name()` before calling `analyze_fn`; does NOT recurse (prevents `visit_function` re-collecting with `"(anonymous)"`) |
+
+**Key helpers:**
+
+```rust
+// DRY arrow collection — used in variable_declarator, object_expression, etc.
+fn collect_arrow(&mut self, arrow: &ArrowFunctionExpression, name: String, inferred_name: Option<String>)
+
+// Extract display name from PropertyKey (StaticIdentifier | StringLiteral | NumericLiteral | computed)
+fn property_key_name(key: &PropertyKey<'_>) -> String
+
+// All-zero metric tuple for body-less/abstract functions
+fn zero_metrics(param_count: u32) -> (CfcResult, DciResult, IrcResult, DcResult, SmResult)
+```
 
 **Arrow function body access:**
+
 ```rust
 // arrow.body is Box<'a, FunctionBody<'a>>
 let body: &FunctionBody = &*arrow.body;  // deref the Box
 ```
+
+**Critical rule:** Visitor overrides for `visit_object_expression`, `visit_export_default_declaration`, `visit_property_definition`, and `visit_method_definition` all collect the function directly and do NOT recurse into collected function bodies. This matches `visit_function`'s pattern and prevents double-collection.
 
 ### `src/lib.rs`
 
@@ -289,23 +314,27 @@ pub fn analyze_source(source: String, file_name: String, options_json: Option<St
 
 #[napi]
 pub fn quick_score(source: String, file_name: String) -> Result<String> {
-    // Returns compact { score, grade, needsRefactoring, flaggedCount } JSON
+    // Returns compact JSON:
+    // { score, grade, needsRefactoring, functionCount, flaggedFunctionCount, topFlags: RefactoringFlag[] }
+    // Skips building the full metric breakdown — same Rust analysis, lighter JSON output.
 }
 ```
 
 ### `js/index.ts`
 
 `getBinding()` tries in order:
+
 1. `require('../qualitas_ts.js')` — the platform-aware loader (created manually since `napi build --js` didn't auto-generate it)
 2. `@qualitas-ts/binding-${platform}-${arch}` — platform npm packages
 3. Fallbacks with `-gnu` and `-msvc` suffixes
 4. Throws if nothing found
 
-The binding returns raw JSON strings. `analyzeSource()` calls `JSON.parse()` on the result and casts to `FileQualityReport`.
+**Public exports:**
 
-`analyzeFile()` — reads file, calls `analyzeSource()`, backfills `location.file` for each function/class (Rust doesn't know the full path during per-source analysis).
-
-`analyzeProject()` — walks directory recursively, collects `.ts/.tsx/.js/.jsx/.mjs/.cjs` files, runs `analyzeFile()` on each in parallel via `Promise.all()`.
+- `quickScore(source, fileName?)` — calls `binding.quickScore()`, returns `QuickScore` (compact: score, grade, needsRefactoring, functionCount, flaggedFunctionCount, topFlags). Same Rust analysis as `analyzeSource` but lighter JSON output.
+- `analyzeSource(source, fileName?, options?)` — calls `binding.analyzeSource()`, returns full `FileQualityReport`. The binding returns raw JSON strings; this wrapper calls `JSON.parse()`.
+- `analyzeFile(filePath, options?)` — reads file, calls `analyzeSource()`, backfills `location.file` for each function/class (Rust doesn't know the full path during per-source analysis).
+- `analyzeProject(dirPath, options?)` — walks directory recursively, collects `.ts/.tsx/.js/.jsx/.mjs/.cjs` files, runs `analyzeFile()` on each in parallel via `Promise.all()`.
 
 ### `qualitas_ts.js`
 
@@ -473,97 +502,55 @@ Located in `#[cfg(test)]` blocks inside each module.
 | `src/metrics/structural.rs` | 3 — empty_function, counts_params_and_returns, counts_nesting |
 | `src/scorer/composite.rs` | 4 — perfect_code_scores_100, high_cfc_reduces_score, saturation_is_sublinear, aggregate_weighted_by_loc |
 
-### JavaScript (`npm test`) — 6 tests
+### JavaScript (`npm test`) — 35 tests
 
 Located in `tests/js/scorer.test.ts`. All require native binding (loaded from `qualitas_ts.linux-x64-gnu.node`).
 
-- `returns score >= 80 for trivial functions` — simple `add(a, b)`
-- `returns no flags for simple utility` — `capitalize(s)` scores > 60
-- `returns low score for deeply nested function` — processOrders with 7 nesting levels, scores < 65
-- `flags too many params` — 6-param function triggers `TOO_MANY_PARAMS` error flag
-- `clean code scores higher than complex code` — invariant test
-- `score is always between 0 and 100` — tests extremes
+| Describe block | Count | What it covers |
+| --- | --- | --- |
+| `analyzeSource — clean code` | 2 | trivial functions score ≥ 80, grade A |
+| `analyzeSource — complex code` | 5 | deep nesting, too many params, TOO_LONG, DEEP_NESTING |
+| `analyzeSource — SourceLocation` | 2 | 1-based line numbers, ordering |
+| `analyzeSource — DC metric` | 3 | distinctApiCalls, file import count, zero-DC baseline |
+| `analyzeSource — IRC metric` | 2 | non-zero IRC, HIGH_IDENTIFIER_CHURN flag |
+| `analyzeSource — function collection patterns` | 6 | object literals, export default, class property arrows |
+| `analyzeSource — arrow functions` | 2 | const arrows, async arrows |
+| `analyzeSource — class analysis` | 2 | method collection, complex class scores lower |
+| `analyzeSource — scoring invariants` | 4 | monotonicity, bounds, empty file, scoreBreakdown sum |
+| `quickScore` | 4 | compact shape, parity with analyzeSource, topFlags, clean code |
+| `renderFileReport — scope filtering` | 4 | function/file/class/default scope behavior |
 
 ---
 
 ## Known Limitations / Not Yet Implemented
 
-### 1. Dependency Coupling at function level is zeroed out
-
-In `analyzer.rs` `build_fn_report()`, the `DependencyCouplingResult` is hard-coded to all zeros:
-
-```rust
-let dc = DependencyCouplingResult {
-    import_count: 0,
-    distinct_sources: 0,
-    // ...
-    raw_score: 0.0,
-};
-```
-
-The `analyze_function_dependencies()` function exists in `src/metrics/dependencies.rs` and works correctly, but it's not wired into the analyzer yet. **TODO:** Call `analyze_function_dependencies(&body, &imported_names)` instead of the zero struct.
-
-### 2. `start_line` / `end_line` in SourceLocation are byte offsets, not line numbers
-
-In `FunctionQualityReport.location`, `start_line` and `end_line` hold raw byte offsets from the AST (e.g., 42, 387), not 1-based line numbers. `byte_to_line()` in `parser/ast.rs` exists but isn't being called in `build_fn_report()`.
-
-**TODO:** Call `byte_to_line(source, cf.start)` in the report builder to populate correct line numbers. Need to thread `source: &str` into `build_fn_report()`.
-
-### 3. No WASM fallback
+### 1. No WASM fallback
 
 The plan included a WASM build for browser/edge environments. The `wasm/` directory was planned but not created.
 
 **TODO:** Add `wasm-bindgen` features and create `wasm/` with a parallel build target. Update `js/index.ts` to try WASM if native binding fails.
 
-### 4. npm/ platform packages not published
-
-The `npm/` directory with per-platform `package.json` files was planned but not created. Currently, the package only works if you build from source locally.
-
-**TODO:** Create `npm/darwin-arm64/package.json`, `npm/linux-x64-gnu/package.json`, etc. Set up GitHub Actions matrix build (the napi-rs CI template) to cross-compile all targets and publish.
-
-### 5. No GitHub Actions CI
-
-No `.github/workflows/` directory exists yet.
-
-**TODO:** Create:
-- `ci.yml` — run `cargo test` + `npm test` on push
-- `publish.yml` — napi-rs matrix build + `npm publish` on tag
-
-Use the napi-rs CI template from: https://napi.rs/docs/introduction/getting-started
-
-### 6. Arrow functions in non-const declarations not analyzed
-
-`FnBodyCollector` handles:
-- `function foo() {}` (function declarations)
-- `const foo = function() {}` (function expressions)
-- `const foo = () => {}` (arrow in const declarator)
-- Class methods (via `visit_class` + `visit_function`)
-
-It does NOT currently handle:
-- Arrow functions in object literals: `{ method: () => {} }`
-- Arrow functions assigned to `let`/`var` (only handles `const`)
-- Arrow functions as export default: `export default () => {}`
-- Arrow functions in class property definitions: `class Foo { method = () => {} }`
-
-**TODO:** Add `visit_object_expression` and `visit_property` to catch object method arrows. Add `visit_export_default_declaration`.
-
-### 7. Class-level IRC and DCI not aggregated
+### 2. Class-level IRC and DCI not aggregated
 
 `ClassQualityReport` computes `structural_metrics` by aggregating method LOC/nesting, but doesn't have aggregated CFC/DCI/IRC at the class level. The class score comes from averaging method scores.
 
 **TODO:** Consider adding class-level metric aggregation (sum of method CFC, etc.).
 
-### 8. `--scope` CLI option not implemented
+### 3. DC only detects `module.method()` call patterns
 
-The CLI accepts `--scope function | class | file | module` but the flag is parsed and ignored. All reports show function-level detail regardless.
+`analyze_function_dependencies()` checks if a `CallExpression` is a member expression where the object is a name in `imported_names`. It misses:
 
-**TODO:** Implement scope filtering in the reporters.
+- Destructured imports used directly: `import { readFile } from 'fs'` → `readFile()`
+- Chained calls: `axios.get().then()`
+- Re-exported or aliased imports
 
-### 9. quickScore not exposed in JS API
+**TODO:** Extend `DcFunctionVisitor` to track destructured import names and detect direct calls.
 
-`quick_score()` is exported from `src/lib.rs` via napi but never called from `js/index.ts`. It returns compact `{ score, grade, needsRefactoring, flaggedCount }` JSON.
+### 4. npm platform packages not yet published to npm registry
 
-**TODO:** Expose as `quickScore(source, fileName)` in the JS API for use cases where only the score is needed (e.g., editor plugins).
+The `npm/` directory has all 5 platform `package.json` stubs. CI is wired to publish on tag. But the packages have never been published (requires a real GitHub org and `NPM_TOKEN` secret configured in the repo).
+
+**TODO:** Configure `NPM_TOKEN` in GitHub Actions secrets, then push a `v0.1.0` tag.
 
 ---
 
@@ -571,31 +558,23 @@ The CLI accepts `--scope function | class | file | module` but the flag is parse
 
 ### High priority
 
-1. **Wire up function-level DC metric** — remove the zero-stub in `build_fn_report()`, call `analyze_function_dependencies()`. Also pass `imported_names` and the source correctly.
+1. **WASM fallback** — add `wasm-bindgen` target so the package works in browser/edge environments. Update `js/index.ts` to try WASM if native binding fails.
 
-2. **Fix SourceLocation line numbers** — thread `source: &str` into `build_fn_report()` and call `byte_to_line()` for `start_line`/`end_line`.
+2. **Publish to npm** — configure `NPM_TOKEN` in GitHub Actions secrets, push a `v0.1.0` tag. CI will build 5-platform matrix and publish automatically.
 
-3. **GitHub Actions CI** — add `.github/workflows/ci.yml` using napi-rs template. Ensures builds don't break on push.
-
-4. **npm platform packages** — create the `npm/` subdirectory with per-platform `package.json` files so the package can be published correctly.
+3. **Extend DC function-level detection** — `DcFunctionVisitor` currently only catches `module.method()` patterns. Add tracking for destructured imports (`readFile()` where `readFile` was imported).
 
 ### Medium priority
 
-5. **WASM fallback** — add `wasm-bindgen` target so the package works in browser/edge environments.
+4. **Benchmark harness** — add a `benches/` directory with criterion.rs benchmarks for the Rust core. Target: analyze 100-file project in < 500ms.
 
-6. **Arrow functions in object literals** — extend `FnBodyCollector` to catch more function patterns.
-
-7. **Expose `quickScore` in JS API** — useful for editor plugins and lightweight checks.
+5. **Class-level metric aggregation** — add sum-of-method CFC/DCI/IRC to `ClassQualityReport` so class-level scope has meaningful metric detail.
 
 ### Lower priority
 
-8. **Implement `--scope` CLI filtering** — filter output to file/class/module granularity.
+6. **Source maps in TS output** — the `dist/` TypeScript output already generates source maps. Verify they work correctly with the CLI stack traces.
 
-9. **Source maps in TS output** — the dist/ TypeScript output already generates source maps. Verify they work correctly.
-
-10. **Benchmark harness** — add a `benches/` directory with criterion.rs benchmarks for the Rust core. Target: analyze 100-file project in < 500ms.
-
-11. **VSCode extension** — this was discussed as a possible future integration. The `analyzeSource()` API is well-suited for this: call on document save, show inline diagnostics.
+7. **VSCode extension** — `analyzeSource()` is well-suited for an editor plugin: call on document save, show inline diagnostics. The CLI output format is already rich enough.
 
 ---
 
@@ -609,7 +588,7 @@ cd ~/qualitas-ts
 
 # Verify state
 cargo test              # should show 17 passed
-npm test                # should show 6 passed
+npm test                # should show 35 passed
 
 # Make sure the .node file is present (needed for npm test)
 ls qualitas_ts.linux-x64-gnu.node

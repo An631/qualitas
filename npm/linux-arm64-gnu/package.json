@@ -1,0 +1,19 @@
+{
+  "name": "@qualitas-ts/binding-linux-arm64-gnu",
+  "version": "0.1.0",
+  "description": "qualitas-ts native binary for Linux arm64 (glibc)",
+  "keywords": ["qualitas-ts", "napi", "native"],
+  "license": "MIT",
+  "os": ["linux"],
+  "cpu": ["arm64"],
+  "libc": ["glibc"],
+  "main": "qualitas-ts.linux-arm64-gnu.node",
+  "files": [
+    "qualitas-ts.linux-arm64-gnu.node"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/qualitas-ts.git",
+    "directory": "npm/linux-arm64-gnu"
+  }
+}

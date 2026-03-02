@@ -195,3 +195,13 @@ export interface AnalysisOptions {
   extensions?: string[];
   exclude?: string[];
 }
+
+/** Compact result returned by `quickScore()` — faster than full `analyzeSource()`. */
+export interface QuickScore {
+  score: number;
+  grade: Grade;
+  needsRefactoring: boolean;
+  functionCount: number;
+  flaggedFunctionCount: number;
+  topFlags: RefactoringFlag[];
+}
