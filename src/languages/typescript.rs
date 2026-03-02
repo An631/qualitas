@@ -1,0 +1,626 @@
+/// TypeScript/JavaScript language adapter.
+///
+/// Uses oxc_parser for native-speed AST analysis and emits QualitasEvents
+/// for the language-agnostic metric collectors.
+use oxc_allocator::Allocator;
+use oxc_ast::ast::*;
+use oxc_ast::visit::walk;
+use oxc_ast::Visit;
+use oxc_parser::Parser;
+use oxc_span::SourceType;
+use oxc_syntax::scope::ScopeFlags;
+use std::collections::HashSet;
+
+use crate::ir::events::*;
+use crate::ir::language::*;
+
+pub struct TypeScriptAdapter;
+
+impl LanguageAdapter for TypeScriptAdapter {
+    fn name(&self) -> &str {
+        "TypeScript/JavaScript"
+    }
+
+    fn extensions(&self) -> &[&str] {
+        &[".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]
+    }
+
+    fn extract(&self, source: &str, file_path: &str) -> Result<FileExtraction, String> {
+        let allocator = Allocator::default();
+        let source_type = SourceType::from_path(file_path)
+            .unwrap_or_else(|_| SourceType::default().with_typescript(true));
+        let parse_result = Parser::new(&allocator, source, source_type).parse();
+
+        if !parse_result.errors.is_empty() {
+            let msg = parse_result
+                .errors
+                .iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>()
+                .join("; ");
+            eprintln!("qualitas parse warning for {file_path}: {msg}");
+        }
+
+        let mut extractor = TsExtractor::new(source);
+        extractor.visit_program(&parse_result.program);
+
+        Ok(FileExtraction {
+            functions: extractor.functions,
+            classes: extractor.classes,
+            imports: extractor.imports,
+        })
+    }
+}
+
+// ─── Top-level extractor ────────────────────────────────────────────────────
+// Walks the program to find function/class boundaries and imports.
+// For each function body, runs TsBodyEventEmitter to produce events.
+
+struct TsExtractor<'src> {
+    source: &'src str,
+    functions: Vec<FunctionExtraction>,
+    classes: Vec<ClassExtraction>,
+    imports: Vec<ImportRecord>,
+    class_stack: Vec<usize>,
+    /// Imported names (for API call detection inside function bodies)
+    imported_names: HashSet<String>,
+}
+
+impl<'src> TsExtractor<'src> {
+    fn new(source: &'src str) -> Self {
+        Self {
+            source,
+            functions: Vec::new(),
+            classes: Vec::new(),
+            imports: Vec::new(),
+            class_stack: Vec::new(),
+            imported_names: HashSet::new(),
+        }
+    }
+
+    fn push_fn(&mut self, fe: FunctionExtraction) {
+        if let Some(&ci) = self.class_stack.last() {
+            self.classes[ci].methods.push(fe);
+        } else {
+            self.functions.push(fe);
+        }
+    }
+
+    fn extract_function(
+        &self,
+        func: &Function<'_>,
+        name: &str,
+        inferred_name: Option<String>,
+    ) -> FunctionExtraction {
+        let param_count = func.params.items.len() as u32;
+        let events = if let Some(body) = &func.body {
+            let mut emitter = TsBodyEventEmitter::new(
+                self.source,
+                name,
+                &self.imported_names,
+            );
+            emitter.visit_function_body(body);
+            emitter.events
+        } else {
+            Vec::new()
+        };
+
+        FunctionExtraction {
+            name: name.to_string(),
+            inferred_name,
+            byte_start: func.span.start,
+            byte_end: func.span.end,
+            param_count,
+            is_async: func.r#async,
+            is_generator: func.generator,
+            events,
+        }
+    }
+}
+
+impl<'a> Visit<'a> for TsExtractor<'_> {
+    fn visit_import_declaration(&mut self, decl: &ImportDeclaration<'a>) {
+        let source_str = decl.source.value.as_str();
+        let is_ext = !source_str.starts_with('.') && !source_str.starts_with('/');
+
+        let mut names = Vec::new();
+        if let Some(specifiers) = &decl.specifiers {
+            for spec in specifiers {
+                let name = match spec {
+                    ImportDeclarationSpecifier::ImportDefaultSpecifier(s) => {
+                        s.local.name.to_string()
+                    }
+                    ImportDeclarationSpecifier::ImportNamespaceSpecifier(s) => {
+                        s.local.name.to_string()
+                    }
+                    ImportDeclarationSpecifier::ImportSpecifier(s) => s.local.name.to_string(),
+                };
+                self.imported_names.insert(name.clone());
+                names.push(name);
+            }
+        }
+
+        self.imports.push(ImportRecord {
+            source: source_str.to_string(),
+            is_external: is_ext,
+            names,
+        });
+    }
+
+    fn visit_function(&mut self, func: &Function<'a>, _flags: ScopeFlags) {
+        let name = func
+            .id
+            .as_ref()
+            .map(|id| id.name.as_str())
+            .unwrap_or("(anonymous)")
+            .to_string();
+        let fe = self.extract_function(func, &name, None);
+        self.push_fn(fe);
+        // Don't recurse — nested functions are collected separately
+    }
+
+    fn visit_variable_declarator(&mut self, decl: &VariableDeclarator<'a>) {
+        let name = match &decl.id.kind {
+            BindingPatternKind::BindingIdentifier(id) => id.name.to_string(),
+            _ => {
+                walk::walk_variable_declarator(self, decl);
+                return;
+            }
+        };
+
+        if let Some(init) = &decl.init {
+            match init {
+                Expression::FunctionExpression(f) => {
+                    let inferred = Some(format!("const {name} = "));
+                    let fe = self.extract_function(f, &name, inferred);
+                    self.push_fn(fe);
+                    return;
+                }
+                Expression::ArrowFunctionExpression(arrow) => {
+                    let param_count = arrow.params.items.len() as u32;
+                    let inferred = Some(format!("const {name} = "));
+                    let body: &FunctionBody = &*arrow.body;
+                    let mut emitter = TsBodyEventEmitter::new(
+                        self.source,
+                        &name,
+                        &self.imported_names,
+                    );
+                    emitter.visit_function_body(body);
+
+                    let fe = FunctionExtraction {
+                        name: name.clone(),
+                        inferred_name: inferred,
+                        byte_start: arrow.span.start,
+                        byte_end: arrow.span.end,
+                        param_count,
+                        is_async: arrow.r#async,
+                        is_generator: false,
+                        events: emitter.events,
+                    };
+                    self.push_fn(fe);
+                    return;
+                }
+                _ => {}
+            }
+        }
+
+        walk::walk_variable_declarator(self, decl);
+    }
+
+    fn visit_class(&mut self, class: &Class<'a>) {
+        let name = class
+            .id
+            .as_ref()
+            .map(|id| id.name.as_str())
+            .unwrap_or("(anonymous class)")
+            .to_string();
+
+        let ce = ClassExtraction {
+            name,
+            byte_start: class.span.start,
+            byte_end: class.span.end,
+            methods: Vec::new(),
+        };
+        let idx = self.classes.len();
+        self.classes.push(ce);
+        self.class_stack.push(idx);
+
+        walk::walk_class(self, class);
+
+        self.class_stack.pop();
+    }
+}
+
+// ─── Function body event emitter ────────────────────────────────────────────
+// Walks a single function body and emits all QualitasEvents.
+// This replaces the 4 separate metric visitors (CFC, DCI, IRC, SM)
+// with a single AST pass that produces an event stream.
+
+struct TsBodyEventEmitter<'src> {
+    events: Vec<QualitasEvent>,
+    fn_name: String,
+    #[allow(dead_code)]
+    source: &'src str,
+    imported_names: &'src HashSet<String>,
+    /// CFC nesting depth (for NestedCallback detection)
+    nesting_depth: u32,
+}
+
+impl<'src> TsBodyEventEmitter<'src> {
+    fn new(source: &'src str, fn_name: &str, imported_names: &'src HashSet<String>) -> Self {
+        Self {
+            events: Vec::with_capacity(256),
+            fn_name: fn_name.to_string(),
+            source,
+            imported_names,
+            nesting_depth: 0,
+        }
+    }
+}
+
+impl<'a> Visit<'a> for TsBodyEventEmitter<'_> {
+    // ── CFC: Control flow ───────────────────────────────────────────────
+
+    fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
+        self.events.push(QualitasEvent::ControlFlow(ControlFlowEvent {
+            kind: ControlFlowKind::If,
+            has_else: it.alternate.is_some(),
+            else_is_if: matches!(&it.alternate, Some(Statement::IfStatement(_))),
+        }));
+
+        // Visit test expression — captures &&/||, operands, operators
+        self.visit_expression(&it.test);
+
+        // Nesting for the consequent body
+        self.events.push(QualitasEvent::NestingEnter);
+        self.nesting_depth += 1;
+        self.visit_statement(&it.consequent);
+
+        if let Some(alt) = &it.alternate {
+            match alt {
+                Statement::IfStatement(_) => {
+                    // else-if: +1 flat, then recursively visit the inner if
+                    self.events.push(QualitasEvent::LogicOp(LogicOpEvent::Ternary));
+                    // NOTE: The inner IfStatement visit will emit its own ControlFlow(If)
+                    // via visit_if_statement, adding the nesting-aware increment.
+                    // The LogicOp above is +1 flat for the else-if branch.
+                    // This matches the original CFC behavior: add_flat() + recursive visit_if_statement
+                    self.visit_statement(alt);
+                }
+                other => {
+                    self.visit_statement(other);
+                }
+            }
+        }
+
+        self.nesting_depth -= 1;
+        self.events.push(QualitasEvent::NestingExit);
+    }
+
+    fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
+        self.events.push(QualitasEvent::ControlFlow(ControlFlowEvent {
+            kind: ControlFlowKind::For,
+            has_else: false,
+            else_is_if: false,
+        }));
+        self.events.push(QualitasEvent::NestingEnter);
+        self.nesting_depth += 1;
+        walk::walk_for_statement(self, it);
+        self.nesting_depth -= 1;
+        self.events.push(QualitasEvent::NestingExit);
+    }
+
+    fn visit_for_in_statement(&mut self, it: &ForInStatement<'a>) {
+        self.events.push(QualitasEvent::ControlFlow(ControlFlowEvent {
+            kind: ControlFlowKind::ForIn,
+            has_else: false,
+            else_is_if: false,
+        }));
+        self.events.push(QualitasEvent::NestingEnter);
+        self.nesting_depth += 1;
+        walk::walk_for_in_statement(self, it);
+        self.nesting_depth -= 1;
+        self.events.push(QualitasEvent::NestingExit);
+    }
+
+    fn visit_for_of_statement(&mut self, it: &ForOfStatement<'a>) {
+        self.events.push(QualitasEvent::ControlFlow(ControlFlowEvent {
+            kind: ControlFlowKind::ForOf,
+            has_else: false,
+            else_is_if: false,
+        }));
+        self.events.push(QualitasEvent::NestingEnter);
+        self.nesting_depth += 1;
+        walk::walk_for_of_statement(self, it);
+        self.nesting_depth -= 1;
+        self.events.push(QualitasEvent::NestingExit);
+    }
+
+    fn visit_while_statement(&mut self, it: &WhileStatement<'a>) {
+        self.events.push(QualitasEvent::ControlFlow(ControlFlowEvent {
+            kind: ControlFlowKind::While,
+            has_else: false,
+            else_is_if: false,
+        }));
+        self.events.push(QualitasEvent::NestingEnter);
+        self.nesting_depth += 1;
+        walk::walk_while_statement(self, it);
+        self.nesting_depth -= 1;
+        self.events.push(QualitasEvent::NestingExit);
+    }
+
+    fn visit_do_while_statement(&mut self, it: &DoWhileStatement<'a>) {
+        self.events.push(QualitasEvent::ControlFlow(ControlFlowEvent {
+            kind: ControlFlowKind::DoWhile,
+            has_else: false,
+            else_is_if: false,
+        }));
+        self.events.push(QualitasEvent::NestingEnter);
+        self.nesting_depth += 1;
+        walk::walk_do_while_statement(self, it);
+        self.nesting_depth -= 1;
+        self.events.push(QualitasEvent::NestingExit);
+    }
+
+    fn visit_switch_statement(&mut self, it: &SwitchStatement<'a>) {
+        self.events.push(QualitasEvent::ControlFlow(ControlFlowEvent {
+            kind: ControlFlowKind::Switch,
+            has_else: false,
+            else_is_if: false,
+        }));
+        self.events.push(QualitasEvent::NestingEnter);
+        self.nesting_depth += 1;
+        walk::walk_switch_statement(self, it);
+        self.nesting_depth -= 1;
+        self.events.push(QualitasEvent::NestingExit);
+    }
+
+    fn visit_catch_clause(&mut self, it: &CatchClause<'a>) {
+        self.events.push(QualitasEvent::ControlFlow(ControlFlowEvent {
+            kind: ControlFlowKind::Catch,
+            has_else: false,
+            else_is_if: false,
+        }));
+        self.events.push(QualitasEvent::NestingEnter);
+        self.nesting_depth += 1;
+        walk::walk_catch_clause(self, it);
+        self.nesting_depth -= 1;
+        self.events.push(QualitasEvent::NestingExit);
+    }
+
+    // ── CFC: Logic operators ────────────────────────────────────────────
+
+    fn visit_logical_expression(&mut self, it: &LogicalExpression<'a>) {
+        let op = match it.operator.as_str() {
+            "&&" => LogicOpEvent::And,
+            "||" => LogicOpEvent::Or,
+            "??" => LogicOpEvent::NullCoalesce,
+            _ => LogicOpEvent::And, // fallback
+        };
+        self.events.push(QualitasEvent::LogicOp(op));
+        // DCI: also record as an operator
+        self.events.push(QualitasEvent::Operator(OperatorEvent {
+            name: it.operator.as_str().to_string(),
+        }));
+        walk::walk_logical_expression(self, it);
+    }
+
+    fn visit_conditional_expression(&mut self, it: &ConditionalExpression<'a>) {
+        // CFC: +1 flat for ternary
+        self.events.push(QualitasEvent::LogicOp(LogicOpEvent::Ternary));
+        // DCI: record as operator
+        self.events.push(QualitasEvent::Operator(OperatorEvent {
+            name: "?:".to_string(),
+        }));
+        walk::walk_conditional_expression(self, it);
+    }
+
+    fn visit_labeled_statement(&mut self, it: &LabeledStatement<'a>) {
+        self.events.push(QualitasEvent::LabeledFlow);
+        walk::walk_labeled_statement(self, it);
+    }
+
+    fn visit_break_statement(&mut self, it: &BreakStatement) {
+        if it.label.is_some() {
+            self.events.push(QualitasEvent::LabeledFlow);
+        }
+    }
+
+    fn visit_continue_statement(&mut self, it: &ContinueStatement) {
+        if it.label.is_some() {
+            self.events.push(QualitasEvent::LabeledFlow);
+        }
+    }
+
+    // ── CFC: Calls (recursive, promise chains, API calls) ───────────────
+
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        // Recursive self-call detection
+        if let Expression::Identifier(id) = &it.callee {
+            if !self.fn_name.is_empty() && id.name.as_str() == self.fn_name {
+                self.events.push(QualitasEvent::RecursiveCall);
+            }
+        }
+
+        // .then() / .catch() promise chains → async complexity
+        if let Expression::StaticMemberExpression(member) = &it.callee {
+            let prop = member.property.name.as_str();
+            if prop == "then" || prop == "catch" {
+                self.events
+                    .push(QualitasEvent::AsyncComplexity(AsyncEvent::PromiseChain));
+            }
+
+            // DC: API call detection (object.method() where object is imported)
+            if let Expression::Identifier(obj) = &member.object {
+                let obj_name = obj.name.as_str();
+                if self.imported_names.contains(obj_name) {
+                    self.events.push(QualitasEvent::ApiCall(ApiCallEvent {
+                        object: obj_name.to_string(),
+                        method: prop.to_string(),
+                    }));
+                }
+            }
+        }
+
+        walk::walk_call_expression(self, it);
+    }
+
+    // ── CFC: Arrow functions (nested callback penalty) ──────────────────
+
+    fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
+        // Nested callback: add nesting_depth penalty
+        if self.nesting_depth > 0 {
+            self.events.push(QualitasEvent::NestedCallback);
+        }
+
+        // Mark nested function boundary (SM and IRC stop here)
+        self.events.push(QualitasEvent::NestedFunctionEnter);
+        self.events.push(QualitasEvent::NestingEnter);
+        self.nesting_depth += 1;
+        walk::walk_arrow_function_expression(self, it);
+        self.nesting_depth -= 1;
+        self.events.push(QualitasEvent::NestingExit);
+        self.events.push(QualitasEvent::NestedFunctionExit);
+    }
+
+    // ── CFC: Await expression ───────────────────────────────────────────
+
+    fn visit_await_expression(&mut self, it: &AwaitExpression<'a>) {
+        if self.nesting_depth > 1 {
+            self.events
+                .push(QualitasEvent::AsyncComplexity(AsyncEvent::Await));
+        }
+        walk::walk_await_expression(self, it);
+    }
+
+    // ── DCI: Operators ──────────────────────────────────────────────────
+
+    fn visit_binary_expression(&mut self, it: &BinaryExpression<'a>) {
+        self.events.push(QualitasEvent::Operator(OperatorEvent {
+            name: it.operator.as_str().to_string(),
+        }));
+        walk::walk_binary_expression(self, it);
+    }
+
+    fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
+        self.events.push(QualitasEvent::Operator(OperatorEvent {
+            name: it.operator.as_str().to_string(),
+        }));
+        walk::walk_assignment_expression(self, it);
+    }
+
+    fn visit_unary_expression(&mut self, it: &UnaryExpression<'a>) {
+        self.events.push(QualitasEvent::Operator(OperatorEvent {
+            name: it.operator.as_str().to_string(),
+        }));
+        walk::walk_unary_expression(self, it);
+    }
+
+    fn visit_update_expression(&mut self, it: &UpdateExpression<'a>) {
+        self.events.push(QualitasEvent::Operator(OperatorEvent {
+            name: if it.prefix {
+                "++pre".to_string()
+            } else {
+                "post++".to_string()
+            },
+        }));
+        walk::walk_update_expression(self, it);
+    }
+
+    fn visit_chain_expression(&mut self, it: &ChainExpression<'a>) {
+        self.events.push(QualitasEvent::Operator(OperatorEvent {
+            name: "?.".to_string(),
+        }));
+        walk::walk_chain_expression(self, it);
+    }
+
+    fn visit_ts_as_expression(&mut self, it: &TSAsExpression<'a>) {
+        self.events.push(QualitasEvent::Operator(OperatorEvent {
+            name: "as".to_string(),
+        }));
+        walk::walk_ts_as_expression(self, it);
+    }
+
+    fn visit_ts_type_assertion(&mut self, it: &TSTypeAssertion<'a>) {
+        self.events.push(QualitasEvent::Operator(OperatorEvent {
+            name: "<type>".to_string(),
+        }));
+        walk::walk_ts_type_assertion(self, it);
+    }
+
+    fn visit_ts_non_null_expression(&mut self, it: &TSNonNullExpression<'a>) {
+        self.events.push(QualitasEvent::Operator(OperatorEvent {
+            name: "!".to_string(),
+        }));
+        walk::walk_ts_non_null_expression(self, it);
+    }
+
+    // ── DCI: Operands ───────────────────────────────────────────────────
+
+    fn visit_identifier_reference(&mut self, it: &IdentifierReference<'a>) {
+        let name = it.name.as_str();
+        // DCI: operand
+        self.events.push(QualitasEvent::Operand(OperandEvent {
+            name: name.to_string(),
+        }));
+        // IRC: reference
+        self.events.push(QualitasEvent::IdentReference(IdentEvent {
+            name: name.to_string(),
+            byte_offset: it.span.start,
+        }));
+    }
+
+    fn visit_string_literal(&mut self, it: &StringLiteral<'a>) {
+        let key = &it.value.as_str()[..it.value.len().min(32)];
+        self.events.push(QualitasEvent::Operand(OperandEvent {
+            name: key.to_string(),
+        }));
+    }
+
+    fn visit_numeric_literal(&mut self, it: &NumericLiteral<'a>) {
+        self.events.push(QualitasEvent::Operand(OperandEvent {
+            name: it.value.to_string(),
+        }));
+    }
+
+    fn visit_boolean_literal(&mut self, it: &BooleanLiteral) {
+        self.events.push(QualitasEvent::Operand(OperandEvent {
+            name: if it.value { "true" } else { "false" }.to_string(),
+        }));
+    }
+
+    fn visit_null_literal(&mut self, _it: &NullLiteral) {
+        self.events.push(QualitasEvent::Operand(OperandEvent {
+            name: "null".to_string(),
+        }));
+    }
+
+    fn visit_this_expression(&mut self, _it: &ThisExpression) {
+        self.events.push(QualitasEvent::Operand(OperandEvent {
+            name: "this".to_string(),
+        }));
+    }
+
+    fn visit_template_literal(&mut self, it: &TemplateLiteral<'a>) {
+        self.events.push(QualitasEvent::Operand(OperandEvent {
+            name: format!("tmpl#{}", it.span.start),
+        }));
+        walk::walk_template_literal(self, it);
+    }
+
+    // ── IRC: Declarations ───────────────────────────────────────────────
+
+    fn visit_binding_identifier(&mut self, it: &BindingIdentifier<'a>) {
+        self.events.push(QualitasEvent::IdentDeclaration(IdentEvent {
+            name: it.name.as_str().to_string(),
+            byte_offset: it.span.start,
+        }));
+    }
+
+    // ── SM: Return statements ───────────────────────────────────────────
+
+    fn visit_return_statement(&mut self, it: &ReturnStatement<'a>) {
+        self.events.push(QualitasEvent::ReturnStatement);
+        walk::walk_return_statement(self, it);
+    }
+}

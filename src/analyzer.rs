@@ -1,22 +1,17 @@
-/// Main analysis orchestrator.
+/// Main analysis orchestrator — language-agnostic.
 ///
-/// Ties together: parser → 5 metrics → scorer → report assembly.
-use oxc_allocator::Allocator;
-use oxc_ast::ast::*;
-use oxc_ast::Visit;
-use oxc_parser::Parser;
-use oxc_span::SourceType;
-use oxc_syntax::scope::ScopeFlags;
-use std::collections::HashSet;
-
+/// Uses the language adapter registry to detect the language from the file
+/// extension, extract functions/classes with IR events, and run the 5 metric
+/// collectors on the event streams.
+use crate::ir::language::{ClassExtraction, FileExtraction, FunctionExtraction};
+use crate::languages::adapter_for_file;
 use crate::metrics::{
-    cognitive_flow::analyze_cfc_body,
-    data_complexity::analyze_dci_body,
-    dependencies::{analyze_file_dependencies, collect_imported_names},
-    identifier_refs::analyze_irc_body,
-    structural::{analyze_structural_body, compute_sm_raw},
+    cognitive_flow::compute_cfc,
+    data_complexity::compute_dci,
+    dependencies::{analyze_file_dependencies_ir, compute_dc_from_events},
+    identifier_refs::compute_irc,
+    structural::{compute_sm_from_events, compute_sm_raw},
 };
-use crate::parser::ast::parse_source;
 use crate::scorer::{
     composite::{aggregate_scores, compute_score},
     thresholds::{generate_flags, grade_from_score},
@@ -28,7 +23,9 @@ pub fn analyze_source_str(
     file_path: &str,
     options: &AnalysisOptions,
 ) -> Result<FileQualityReport, String> {
-    let parsed = parse_source(source, file_path)?;
+    // 1. Detect language and extract functions/classes/imports
+    let adapter = adapter_for_file(file_path)?;
+    let extraction = adapter.extract(source, file_path)?;
 
     let profile = options.profile.as_deref();
     let weights_ref = options.weights.as_ref();
@@ -36,37 +33,51 @@ pub fn analyze_source_str(
         .refactoring_threshold
         .unwrap_or(crate::constants::DEFAULT_REFACTORING_THRESHOLD);
 
-    let file_deps = analyze_file_dependencies(&parsed.import_records);
-    let imported_names: HashSet<String> = collect_imported_names(&parsed.import_records);
+    // 2. File-level dependency analysis from imports
+    let file_deps = analyze_file_dependencies_ir(&extraction.imports);
 
-    // Re-parse to get AST with allocator for metric analysis
-    let allocator = Allocator::default();
-    let source_type = SourceType::from_path(file_path)
-        .unwrap_or_else(|_| SourceType::default().with_typescript(true));
-    let parse_result = Parser::new(&allocator, source, source_type).parse();
-    let program = &parse_result.program;
+    // 3. Destructure extraction so we can move parts independently
+    let FileExtraction {
+        functions,
+        classes,
+        imports,
+    } = extraction;
 
-    // Collect all function bodies in one pass
-    let mut fn_collector = FnBodyCollector::new(source);
-    fn_collector.visit_program(program);
+    let fn_count = functions.len() as u32
+        + classes.iter().map(|c| c.methods.len() as u32).sum::<u32>();
+    let class_count = classes.len() as u32;
 
-    // Build function reports
-    let function_reports: Vec<FunctionQualityReport> = fn_collector
-        .functions
+    // 4. Build per-function reports from event streams
+    let function_reports: Vec<FunctionQualityReport> = functions
         .into_iter()
-        .map(|fi| build_fn_report(fi, &imported_names, profile, weights_ref, refactoring_threshold))
-        .collect();
-
-    // Build class reports
-    let class_reports: Vec<ClassQualityReport> = fn_collector
-        .classes
-        .into_iter()
-        .map(|ci| {
-            build_class_report(ci, &imported_names, profile, weights_ref, refactoring_threshold)
+        .map(|fe| {
+            build_fn_report_from_events(
+                fe,
+                source,
+                &imports,
+                profile,
+                weights_ref,
+                refactoring_threshold,
+            )
         })
         .collect();
 
-    // File-level score
+    // 5. Build class reports
+    let class_reports: Vec<ClassQualityReport> = classes
+        .into_iter()
+        .map(|ce| {
+            build_class_report_from_events(
+                ce,
+                source,
+                &imports,
+                profile,
+                weights_ref,
+                refactoring_threshold,
+            )
+        })
+        .collect();
+
+    // 6. File-level score (LOC-weighted average)
     let mut all_scores: Vec<(f64, u32)> = function_reports
         .iter()
         .map(|r| (r.score, r.metrics.structural.loc.max(1)))
@@ -100,208 +111,34 @@ pub fn analyze_source_str(
         classes: class_reports,
         file_dependencies: file_deps,
         total_lines: source.lines().count() as u32,
-        function_count: fn_collector.fn_count,
-        class_count: fn_collector.class_count,
+        function_count: fn_count,
+        class_count,
         flagged_function_count: flagged_fn_count,
     })
 }
 
-// ─── Collected function/class data for metric analysis ────────────────────────
+// ─── Report assembly from event streams ─────────────────────────────────────
 
-struct CollectedFunction {
-    name: String,
-    inferred_name: Option<String>,
-    start: u32,
-    end: u32,
-    is_async: bool,
-    is_generator: bool,
-    // Metrics computed inline (param_count lives in sm.parameter_count)
-    cfc: CognitiveFlowResult,
-    dci: DataComplexityResult,
-    irc: IdentifierRefResult,
-    sm: StructuralResult,
-}
-
-struct CollectedClass {
-    name: String,
-    start: u32,
-    end: u32,
-    methods: Vec<CollectedFunction>,
-}
-
-struct FnBodyCollector<'src> {
-    source: &'src str,
-    functions: Vec<CollectedFunction>,
-    classes: Vec<CollectedClass>,
-    fn_count: u32,
-    class_count: u32,
-    class_stack: Vec<usize>,
-}
-
-impl<'src> FnBodyCollector<'src> {
-    fn new(source: &'src str) -> Self {
-        Self {
-            source,
-            functions: Vec::new(),
-            classes: Vec::new(),
-            fn_count: 0,
-            class_count: 0,
-            class_stack: Vec::new(),
-        }
-    }
-
-    fn analyze_fn(
-        &self,
-        func: &Function<'_>,
-        name: &str,
-        inferred_name: Option<String>,
-    ) -> CollectedFunction {
-        let param_count = func.params.items.len() as u32;
-        let (cfc, dci, irc, sm) = if let Some(body) = &func.body {
-            let cfc = analyze_cfc_body(body, name);
-            let dci = analyze_dci_body(body);
-            let irc = analyze_irc_body(body, self.source);
-            let sm = analyze_structural_body(body, self.source, func.span.start, func.span.end, param_count);
-            (cfc, dci, irc, sm)
-        } else {
-            (
-                CognitiveFlowResult { score: 0, nesting_penalty: 0, base_increments: 0, async_penalty: 0, max_nesting_depth: 0 },
-                DataComplexityResult { halstead: HalsteadCounts { distinct_operators: 0, distinct_operands: 0, total_operators: 0, total_operands: 0 }, difficulty: 0.0, volume: 0.0, effort: 0.0, raw_score: 0.0 },
-                IdentifierRefResult { total_irc: 0.0, hotspots: vec![] },
-                StructuralResult { loc: 0, total_lines: 0, parameter_count: param_count, max_nesting_depth: 0, return_count: 0, method_count: None, raw_score: 0.0 },
-            )
-        };
-
-        CollectedFunction {
-            name: name.to_string(),
-            inferred_name,
-            start: func.span.start,
-            end: func.span.end,
-            is_async: func.r#async,
-            is_generator: func.generator,
-            cfc,
-            dci,
-            irc,
-            sm,
-        }
-    }
-
-    fn push_fn(&mut self, cf: CollectedFunction) {
-        if let Some(&ci) = self.class_stack.last() {
-            self.classes[ci].methods.push(cf);
-        } else {
-            self.functions.push(cf);
-        }
-        self.fn_count += 1;
-    }
-}
-
-impl<'a> Visit<'a> for FnBodyCollector<'_> {
-    fn visit_function(&mut self, func: &Function<'a>, _flags: ScopeFlags) {
-        let name = func.id.as_ref().map(|id| id.name.as_str()).unwrap_or("(anonymous)").to_string();
-        let cf = self.analyze_fn(func, &name, None);
-        self.push_fn(cf);
-        // Don't recurse into nested functions — they're collected separately at top level
-    }
-
-    fn visit_variable_declarator(&mut self, decl: &VariableDeclarator<'a>) {
-        let name = match &decl.id.kind {
-            BindingPatternKind::BindingIdentifier(id) => id.name.to_string(),
-            _ => {
-                // still walk to find nested functions
-                use oxc_ast::visit::walk;
-                walk::walk_variable_declarator(self, decl);
-                return;
-            }
-        };
-
-        if let Some(init) = &decl.init {
-            match init {
-                Expression::FunctionExpression(f) => {
-                    let inferred = Some(format!("const {name} = "));
-                    let cf = self.analyze_fn(f, &name, inferred);
-                    self.push_fn(cf);
-                    return;
-                }
-                Expression::ArrowFunctionExpression(arrow) => {
-                    // Collect arrow function as a named function
-                    let param_count = arrow.params.items.len() as u32;
-                    let inferred = Some(format!("const {name} = "));
-                    // arrow.body is Box<'a, FunctionBody<'a>>, deref directly
-                    let body: &FunctionBody = &*arrow.body;
-                    let cfc = analyze_cfc_body(body, &name);
-                    let dci = analyze_dci_body(body);
-                    let irc = analyze_irc_body(body, self.source);
-                    let sm = analyze_structural_body(body, self.source, arrow.span.start, arrow.span.end, param_count);
-                    let cf = CollectedFunction {
-                        name: name.clone(),
-                        inferred_name: inferred,
-                        start: arrow.span.start,
-                        end: arrow.span.end,
-                        is_async: arrow.r#async,
-                        is_generator: false,
-                        cfc,
-                        dci,
-                        irc,
-                        sm,
-                    };
-                    self.push_fn(cf);
-                    return;
-                }
-                _ => {}
-            }
-        }
-
-        use oxc_ast::visit::walk;
-        walk::walk_variable_declarator(self, decl);
-    }
-
-    fn visit_class(&mut self, class: &Class<'a>) {
-        let name = class.id.as_ref().map(|id| id.name.as_str()).unwrap_or("(anonymous class)").to_string();
-        let cc = CollectedClass {
-            name,
-            start: class.span.start,
-            end: class.span.end,
-            methods: Vec::new(),
-        };
-        let idx = self.classes.len();
-        self.classes.push(cc);
-        self.class_stack.push(idx);
-        self.class_count += 1;
-
-        use oxc_ast::visit::walk;
-        walk::walk_class(self, class);
-
-        self.class_stack.pop();
-    }
-}
-
-// ─── Report assembly ──────────────────────────────────────────────────────────
-
-fn build_fn_report(
-    cf: CollectedFunction,
-    _imported_names: &HashSet<String>, // TODO: wire up function-level DC analysis
+fn build_fn_report_from_events(
+    fe: FunctionExtraction,
+    source: &str,
+    imports: &[crate::ir::language::ImportRecord],
     profile: Option<&str>,
     weights: Option<&WeightConfig>,
     refactoring_threshold: f64,
 ) -> FunctionQualityReport {
-    let dc = DependencyCouplingResult {
-        import_count: 0,
-        distinct_sources: 0,
-        external_ratio: 0.0,
-        external_packages: vec![],
-        internal_modules: vec![],
-        distinct_api_calls: 0,
-        closure_captures: 0,
-        raw_score: 0.0,
-    };
+    let cfc = compute_cfc(&fe.events);
+    let dci = compute_dci(&fe.events);
+    let irc = compute_irc(&fe.events, source);
+    let dc = compute_dc_from_events(&fe.events, imports);
+    let sm = compute_sm_from_events(&fe.events, source, fe.byte_start, fe.byte_end, fe.param_count);
 
     let metrics = MetricBreakdown {
-        cognitive_flow: cf.cfc,
-        data_complexity: cf.dci,
-        identifier_reference: cf.irc,
+        cognitive_flow: cfc,
+        data_complexity: dci,
+        identifier_reference: irc,
         dependency_coupling: dc,
-        structural: cf.sm,
+        structural: sm,
     };
 
     let (score, breakdown) = compute_score(&metrics, weights, profile);
@@ -310,8 +147,8 @@ fn build_fn_report(
     let flags = generate_flags(&metrics);
 
     FunctionQualityReport {
-        name: cf.name,
-        inferred_name: cf.inferred_name,
+        name: fe.name,
+        inferred_name: fe.inferred_name,
         score,
         grade,
         needs_refactoring,
@@ -320,27 +157,30 @@ fn build_fn_report(
         score_breakdown: breakdown,
         location: SourceLocation {
             file: String::new(),
-            start_line: cf.start,
-            end_line: cf.end,
+            start_line: fe.byte_start,
+            end_line: fe.byte_end,
             start_col: 0,
             end_col: 0,
         },
-        is_async: cf.is_async,
-        is_generator: cf.is_generator,
+        is_async: fe.is_async,
+        is_generator: fe.is_generator,
     }
 }
 
-fn build_class_report(
-    cc: CollectedClass,
-    imported_names: &HashSet<String>,
+fn build_class_report_from_events(
+    ce: ClassExtraction,
+    source: &str,
+    imports: &[crate::ir::language::ImportRecord],
     profile: Option<&str>,
     weights: Option<&WeightConfig>,
     refactoring_threshold: f64,
 ) -> ClassQualityReport {
-    let method_reports: Vec<FunctionQualityReport> = cc
+    let method_reports: Vec<FunctionQualityReport> = ce
         .methods
         .into_iter()
-        .map(|m| build_fn_report(m, imported_names, profile, weights, refactoring_threshold))
+        .map(|m| {
+            build_fn_report_from_events(m, source, imports, profile, weights, refactoring_threshold)
+        })
         .collect();
 
     let method_scores: Vec<(f64, u32)> = method_reports
@@ -357,7 +197,10 @@ fn build_class_report(
     let grade = grade_from_score(class_score, profile);
     let needs_refactoring = class_score < refactoring_threshold;
     let method_count = method_reports.len() as u32;
-    let total_loc: u32 = method_reports.iter().map(|r| r.metrics.structural.loc).sum();
+    let total_loc: u32 = method_reports
+        .iter()
+        .map(|r| r.metrics.structural.loc)
+        .sum();
     let max_nesting = method_reports
         .iter()
         .map(|r| r.metrics.structural.max_nesting_depth)
@@ -375,7 +218,7 @@ fn build_class_report(
     };
 
     ClassQualityReport {
-        name: cc.name,
+        name: ce.name,
         score: class_score,
         grade,
         needs_refactoring,
@@ -384,8 +227,8 @@ fn build_class_report(
         methods: method_reports,
         location: SourceLocation {
             file: String::new(),
-            start_line: cc.start,
-            end_line: cc.end,
+            start_line: ce.byte_start,
+            end_line: ce.byte_end,
             start_col: 0,
             end_col: 0,
         },

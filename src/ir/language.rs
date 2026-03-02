@@ -1,0 +1,115 @@
+/// Language adapter trait and extraction types.
+///
+/// # Adding a new language
+///
+/// 1. Create `src/languages/<lang>.rs`
+/// 2. Implement `LanguageAdapter` for your struct
+/// 3. Register it in `src/languages/mod.rs`
+///
+/// That's it. The scorer, types, constants, and napi layer remain untouched.
+use crate::ir::events::QualitasEvent;
+
+// ─── Extraction types ───────────────────────────────────────────────────────
+
+/// Import record from file-level analysis.
+#[derive(Debug, Clone)]
+pub struct ImportRecord {
+    /// Module specifier (e.g., "fs", "./utils", "lodash")
+    pub source: String,
+    /// Whether this is an external (non-relative) import
+    pub is_external: bool,
+    /// Imported binding names
+    pub names: Vec<String>,
+}
+
+/// Metadata + event stream for a single extracted function/method.
+#[derive(Debug)]
+pub struct FunctionExtraction {
+    pub name: String,
+    pub inferred_name: Option<String>,
+    pub byte_start: u32,
+    pub byte_end: u32,
+    pub param_count: u32,
+    pub is_async: bool,
+    pub is_generator: bool,
+    /// The stream of IR events for this function body.
+    pub events: Vec<QualitasEvent>,
+}
+
+/// Metadata for a single extracted class/struct/module.
+#[derive(Debug)]
+pub struct ClassExtraction {
+    pub name: String,
+    pub byte_start: u32,
+    pub byte_end: u32,
+    pub methods: Vec<FunctionExtraction>,
+}
+
+/// Complete extraction result for one source file.
+#[derive(Debug)]
+pub struct FileExtraction {
+    pub functions: Vec<FunctionExtraction>,
+    pub classes: Vec<ClassExtraction>,
+    pub imports: Vec<ImportRecord>,
+}
+
+// ─── Per-language threshold overrides ───────────────────────────────────────
+
+/// Optional per-language overrides for normalization constants and flag thresholds.
+/// Any `None` field falls back to the global default from `constants.rs`.
+#[derive(Debug, Clone, Default)]
+pub struct ThresholdOverrides {
+    // Normalization constants (F-tier raw values)
+    pub norm_cfc: Option<f64>,
+    pub norm_dci_difficulty: Option<f64>,
+    pub norm_dci_volume: Option<f64>,
+    pub norm_irc: Option<f64>,
+    pub norm_sm_loc: Option<f64>,
+    pub norm_sm_params: Option<f64>,
+    pub norm_sm_nesting: Option<f64>,
+    pub norm_sm_returns: Option<f64>,
+
+    // Flag thresholds (warning / error)
+    pub cfc_warning: Option<u32>,
+    pub cfc_error: Option<u32>,
+    pub loc_warning: Option<u32>,
+    pub loc_error: Option<u32>,
+    pub params_warning: Option<u32>,
+    pub params_error: Option<u32>,
+    pub nesting_warning: Option<u32>,
+    pub nesting_error: Option<u32>,
+    pub returns_warning: Option<u32>,
+    pub returns_error: Option<u32>,
+}
+
+// ─── Language adapter trait ─────────────────────────────────────────────────
+
+/// The primary trait that language adapters implement.
+///
+/// A language adapter is responsible for:
+/// 1. Parsing source code using whatever parser is best for the language
+/// 2. Extracting function/class boundaries
+/// 3. Walking each function body and emitting `QualitasEvent`s
+///
+/// The metric collectors, scorer, and output types are shared across all languages.
+pub trait LanguageAdapter: Send + Sync {
+    /// Human-readable name (e.g., "TypeScript", "Python", "Go").
+    fn name(&self) -> &str;
+
+    /// File extensions this adapter handles (e.g., `&[".ts", ".tsx", ".js"]`).
+    fn extensions(&self) -> &[&str];
+
+    /// Parse source text and extract all functions, classes, and imports.
+    ///
+    /// Each extracted function contains a `Vec<QualitasEvent>` representing
+    /// the metric-relevant events found in its body.
+    fn extract(&self, source: &str, file_path: &str) -> Result<FileExtraction, String>;
+
+    /// Return language-specific threshold overrides, or `None` to use defaults.
+    ///
+    /// Override this to adjust thresholds for your language. For example,
+    /// Python functions tend to be shorter, so you might lower the LOC thresholds.
+    fn threshold_overrides(&self) -> Option<ThresholdOverrides> {
+        None
+    }
+}

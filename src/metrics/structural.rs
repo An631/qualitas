@@ -1,18 +1,24 @@
 /// Structural Metrics (SM)
+#[cfg(test)]
 use oxc_ast::ast::*;
+#[cfg(test)]
 use oxc_ast::visit::walk;
+#[cfg(test)]
 use oxc_ast::Visit;
+#[cfg(test)]
 use oxc_syntax::scope::ScopeFlags;
 
 use crate::parser::ast::count_loc;
 use crate::types::StructuralResult;
 
+#[cfg(test)]
 struct SmVisitor {
     nesting_depth: u32,
     max_nesting_depth: u32,
     return_count: u32,
 }
 
+#[cfg(test)]
 impl SmVisitor {
     fn new() -> Self {
         Self { nesting_depth: 0, max_nesting_depth: 0, return_count: 0 }
@@ -30,6 +36,7 @@ impl SmVisitor {
     }
 }
 
+#[cfg(test)]
 impl<'a> Visit<'a> for SmVisitor {
     fn visit_block_statement(&mut self, it: &BlockStatement<'a>) {
         self.push();
@@ -48,6 +55,7 @@ impl<'a> Visit<'a> for SmVisitor {
 }
 
 /// Analyze structural metrics for a function body.
+#[cfg(test)]
 pub fn analyze_structural_body(
     body: &FunctionBody<'_>,
     source: &str,
@@ -73,6 +81,76 @@ pub fn analyze_structural_body(
         parameter_count: param_count,
         max_nesting_depth: visitor.max_nesting_depth,
         return_count: visitor.return_count,
+        method_count: None,
+        raw_score,
+    }
+}
+
+// ─── Event-based SM computation ─────────────────────────────────────────────
+
+use crate::ir::events::*;
+
+/// Compute structural metrics from a stream of IR events (language-agnostic).
+///
+/// `source`, `span_start`, `span_end` are used for LOC counting.
+/// `param_count` comes from `FunctionExtraction.param_count`.
+///
+/// SM stops counting at `NestedFunctionEnter` boundaries — nested function
+/// nesting and returns don't count toward the outer function's SM.
+pub fn compute_sm_from_events(
+    events: &[QualitasEvent],
+    source: &str,
+    span_start: u32,
+    span_end: u32,
+    param_count: u32,
+) -> StructuralResult {
+    let loc = count_loc(source, span_start, span_end);
+    let total_lines = source[span_start as usize..(span_end as usize).min(source.len())]
+        .chars()
+        .filter(|&c| c == '\n')
+        .count() as u32
+        + 1;
+
+    let mut nesting_depth: u32 = 0;
+    let mut max_nesting_depth: u32 = 0;
+    let mut return_count: u32 = 0;
+    let mut nested_fn_depth: u32 = 0; // track nested function boundaries
+
+    for event in events {
+        match event {
+            QualitasEvent::NestedFunctionEnter => {
+                nested_fn_depth += 1;
+            }
+            QualitasEvent::NestedFunctionExit => {
+                nested_fn_depth = nested_fn_depth.saturating_sub(1);
+            }
+            _ if nested_fn_depth > 0 => {
+                // Skip events inside nested functions
+            }
+            QualitasEvent::NestingEnter => {
+                nesting_depth += 1;
+                if nesting_depth > max_nesting_depth {
+                    max_nesting_depth = nesting_depth;
+                }
+            }
+            QualitasEvent::NestingExit => {
+                nesting_depth = nesting_depth.saturating_sub(1);
+            }
+            QualitasEvent::ReturnStatement => {
+                return_count += 1;
+            }
+            _ => {}
+        }
+    }
+
+    let raw_score = compute_sm_raw(loc, param_count, max_nesting_depth, return_count);
+
+    StructuralResult {
+        loc,
+        total_lines,
+        parameter_count: param_count,
+        max_nesting_depth,
+        return_count,
         method_count: None,
         raw_score,
     }
@@ -134,5 +212,47 @@ mod tests {
     fn counts_nesting() {
         let r = analyze_structural_from_source("function f(x) { if (x) { for (;;) { return 1; } } }");
         assert!(r.max_nesting_depth >= 2);
+    }
+
+    // ── Event-based tests ───────────────────────────────────────────────
+
+    #[test]
+    fn event_empty_function() {
+        let source = "function f() {}";
+        let events: Vec<QualitasEvent> = vec![];
+        let r = compute_sm_from_events(&events, source, 0, source.len() as u32, 0);
+        assert_eq!(r.parameter_count, 0);
+        assert_eq!(r.return_count, 0);
+        assert_eq!(r.max_nesting_depth, 0);
+    }
+
+    #[test]
+    fn event_counts_returns_and_nesting() {
+        let source = "function f(a) {\n  if (a) {\n    return 1;\n  }\n  return 0;\n}";
+        let events = vec![
+            QualitasEvent::NestingEnter,    // if block
+            QualitasEvent::ReturnStatement,  // return 1
+            QualitasEvent::NestingExit,
+            QualitasEvent::ReturnStatement,  // return 0
+        ];
+        let r = compute_sm_from_events(&events, source, 0, source.len() as u32, 1);
+        assert_eq!(r.parameter_count, 1);
+        assert_eq!(r.return_count, 2);
+        assert_eq!(r.max_nesting_depth, 1);
+    }
+
+    #[test]
+    fn event_deep_nesting() {
+        let source = "x";
+        let events = vec![
+            QualitasEvent::NestingEnter,
+            QualitasEvent::NestingEnter,
+            QualitasEvent::NestingEnter,
+            QualitasEvent::NestingExit,
+            QualitasEvent::NestingExit,
+            QualitasEvent::NestingExit,
+        ];
+        let r = compute_sm_from_events(&events, source, 0, source.len() as u32, 0);
+        assert_eq!(r.max_nesting_depth, 3);
     }
 }

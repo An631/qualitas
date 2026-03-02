@@ -1,15 +1,56 @@
 /// Dependency Coupling (DC) metric
 ///
 /// Measures how many external dependencies and distinct APIs a file/function touches.
+#[cfg(test)]
 use oxc_ast::ast::*;
+#[cfg(test)]
 use oxc_ast::visit::walk;
+#[cfg(test)]
 use oxc_ast::Visit;
 use std::collections::HashSet;
 
+use crate::ir::language::ImportRecord as IrImportRecordType;
+#[cfg(test)]
 use crate::parser::ast::ImportRecord;
 use crate::types::DependencyCouplingResult;
 
-/// Analyze file-level import dependencies.
+/// Analyze file-level import dependencies (from IR import records).
+pub fn analyze_file_dependencies_ir(imports: &[IrImportRecordType]) -> DependencyCouplingResult {
+    let mut external_packages: HashSet<String> = HashSet::new();
+    let mut internal_modules: HashSet<String> = HashSet::new();
+
+    for import in imports {
+        if import.is_external {
+            external_packages.insert(root_package_name(&import.source));
+        } else {
+            internal_modules.insert(import.source.clone());
+        }
+    }
+
+    let import_count = imports.len() as u32;
+    let distinct_sources = (external_packages.len() + internal_modules.len()) as u32;
+    let external_ratio = if import_count > 0 {
+        external_packages.len() as f64 / import_count as f64
+    } else {
+        0.0
+    };
+
+    let raw_score = compute_dc_raw(import_count, external_ratio, 0);
+
+    DependencyCouplingResult {
+        import_count,
+        distinct_sources,
+        external_ratio,
+        external_packages: external_packages.into_iter().collect(),
+        internal_modules: internal_modules.into_iter().collect(),
+        distinct_api_calls: 0,
+        closure_captures: 0,
+        raw_score,
+    }
+}
+
+/// Analyze file-level import dependencies (from parser import records).
+#[cfg(test)]
 pub fn analyze_file_dependencies(imports: &[ImportRecord]) -> DependencyCouplingResult {
     let mut external_packages: HashSet<String> = HashSet::new();
     let mut internal_modules: HashSet<String> = HashSet::new();
@@ -55,13 +96,13 @@ fn root_package_name(source: &str) -> String {
 }
 
 /// Collect all imported binding names.
+#[cfg(test)]
 pub fn collect_imported_names(imports: &[ImportRecord]) -> HashSet<String> {
     imports.iter().flat_map(|r| r.names.iter().cloned()).collect()
 }
 
 /// Analyze function-level API call patterns.
-// TODO: wire this into analyzer.rs build_fn_report() to replace the zero-stub DC result.
-#[allow(dead_code)]
+#[cfg(test)]
 pub fn analyze_function_dependencies(
     body: &FunctionBody<'_>,
     imported_names: &HashSet<String>,
@@ -94,11 +135,69 @@ pub fn compute_dc_raw(import_count: u32, external_ratio: f64, distinct_api_calls
         + DC_API_CALLS_WEIGHT * (distinct_api_calls as f64 / NORM_DC_API_CALLS)
 }
 
+// ─── Event-based DC computation ─────────────────────────────────────────────
+
+use crate::ir::events::*;
+use crate::ir::language::ImportRecord as IrImportRecord;
+
+/// Compute function-level DC from a stream of IR events (language-agnostic).
+///
+/// `imports` provides file-level import context for computing the full DC score.
+pub fn compute_dc_from_events(
+    events: &[QualitasEvent],
+    imports: &[IrImportRecord],
+) -> DependencyCouplingResult {
+    let mut api_calls: HashSet<String> = HashSet::new();
+
+    for event in events {
+        if let QualitasEvent::ApiCall(call) = event {
+            let key = format!("{}.{}", call.object, call.method);
+            api_calls.insert(key);
+        }
+    }
+
+    // File-level stats from imports
+    let mut external_packages: HashSet<String> = HashSet::new();
+    let mut internal_modules: HashSet<String> = HashSet::new();
+
+    for import in imports {
+        if import.is_external {
+            external_packages.insert(root_package_name(&import.source));
+        } else {
+            internal_modules.insert(import.source.clone());
+        }
+    }
+
+    let import_count = imports.len() as u32;
+    let distinct_sources = (external_packages.len() + internal_modules.len()) as u32;
+    let external_ratio = if import_count > 0 {
+        external_packages.len() as f64 / import_count as f64
+    } else {
+        0.0
+    };
+
+    let distinct_api_calls = api_calls.len() as u32;
+    let raw_score = compute_dc_raw(import_count, external_ratio, distinct_api_calls);
+
+    DependencyCouplingResult {
+        import_count,
+        distinct_sources,
+        external_ratio,
+        external_packages: external_packages.into_iter().collect(),
+        internal_modules: internal_modules.into_iter().collect(),
+        distinct_api_calls,
+        closure_captures: 0,
+        raw_score,
+    }
+}
+
+#[cfg(test)]
 struct DcFunctionVisitor<'a> {
     imported_names: &'a HashSet<String>,
     api_calls: HashSet<String>,
 }
 
+#[cfg(test)]
 impl<'a, 'b> Visit<'b> for DcFunctionVisitor<'a> {
     fn visit_call_expression(&mut self, it: &CallExpression<'b>) {
         if let Expression::StaticMemberExpression(member) = &it.callee {
@@ -126,5 +225,44 @@ mod tests {
     #[test]
     fn root_package_simple() {
         assert_eq!(root_package_name("react"), "react");
+    }
+
+    // ── Event-based tests ───────────────────────────────────────────────
+
+    #[test]
+    fn event_no_api_calls() {
+        let events: Vec<QualitasEvent> = vec![];
+        let imports: Vec<IrImportRecord> = vec![];
+        let r = compute_dc_from_events(&events, &imports);
+        assert_eq!(r.distinct_api_calls, 0);
+        assert_eq!(r.import_count, 0);
+    }
+
+    #[test]
+    fn event_counts_api_calls() {
+        let events = vec![
+            QualitasEvent::ApiCall(ApiCallEvent {
+                object: "fs".into(),
+                method: "readFile".into(),
+            }),
+            QualitasEvent::ApiCall(ApiCallEvent {
+                object: "fs".into(),
+                method: "writeFile".into(),
+            }),
+            // Duplicate — should not increase distinct count
+            QualitasEvent::ApiCall(ApiCallEvent {
+                object: "fs".into(),
+                method: "readFile".into(),
+            }),
+        ];
+        let imports = vec![IrImportRecord {
+            source: "fs".into(),
+            is_external: true,
+            names: vec!["fs".into()],
+        }];
+        let r = compute_dc_from_events(&events, &imports);
+        assert_eq!(r.distinct_api_calls, 2); // fs.readFile + fs.writeFile
+        assert_eq!(r.import_count, 1);
+        assert!(r.external_ratio > 0.0);
     }
 }

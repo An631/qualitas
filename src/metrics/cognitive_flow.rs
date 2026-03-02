@@ -10,18 +10,23 @@
 /// - Promise .then/.catch call: +1 + nestingDepth (JS-specific)
 /// - Nested ArrowFunctionExpression as callback arg: +nestingDepth (JS-specific)
 /// - AwaitExpression inside nested scope (depth > 1): +1 + nestingDepth (JS-specific)
+#[cfg(test)]
 use oxc_ast::ast::*;
+#[cfg(test)]
 use oxc_ast::visit::walk;
+#[cfg(test)]
 use oxc_ast::Visit;
 
 use crate::types::CognitiveFlowResult;
 
+#[cfg(test)]
 pub struct CfcVisitor {
     pub result: CognitiveFlowResult,
     nesting_depth: u32,
     fn_name: String,
 }
 
+#[cfg(test)]
 impl CfcVisitor {
     pub fn new(fn_name: &str) -> Self {
         Self {
@@ -58,6 +63,7 @@ impl CfcVisitor {
     }
 }
 
+#[cfg(test)]
 impl<'a> Visit<'a> for CfcVisitor {
     fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
         self.add_nesting();
@@ -198,10 +204,97 @@ impl<'a> Visit<'a> for CfcVisitor {
 }
 
 /// Run CFC on a raw FunctionBody AST node.
+#[cfg(test)]
 pub fn analyze_cfc_body<'a>(body: &FunctionBody<'a>, fn_name: &str) -> CognitiveFlowResult {
     let mut visitor = CfcVisitor::new(fn_name);
     visitor.visit_function_body(body);
     visitor.result
+}
+
+// ─── Event-based CFC computation ────────────────────────────────────────────
+
+use crate::ir::events::*;
+
+/// Compute CFC from a stream of IR events (language-agnostic).
+///
+/// Event ordering contract:
+/// - `ControlFlow` is emitted BEFORE `NestingEnter` for the branch body,
+///   so `nesting_depth` reflects the depth at the point of the branch.
+/// - `NestingEnter`/`NestingExit` must be balanced.
+pub fn compute_cfc(events: &[QualitasEvent]) -> CognitiveFlowResult {
+    let mut score: u32 = 0;
+    let mut nesting_penalty: u32 = 0;
+    let mut base_increments: u32 = 0;
+    let mut async_penalty: u32 = 0;
+    let mut nesting_depth: u32 = 0;
+    let mut max_nesting_depth: u32 = 0;
+
+    for event in events {
+        match event {
+            QualitasEvent::ControlFlow(_) => {
+                // +1 + nesting_depth (same as add_nesting)
+                score += 1 + nesting_depth;
+                nesting_penalty += nesting_depth;
+                base_increments += 1;
+                if nesting_depth > max_nesting_depth {
+                    max_nesting_depth = nesting_depth;
+                }
+            }
+
+            QualitasEvent::LogicOp(_) => {
+                // +1 flat (same as add_flat)
+                score += 1;
+                base_increments += 1;
+            }
+
+            QualitasEvent::RecursiveCall => {
+                score += 1;
+                base_increments += 1;
+            }
+
+            QualitasEvent::LabeledFlow => {
+                score += 1;
+                base_increments += 1;
+            }
+
+            QualitasEvent::AsyncComplexity(_) => {
+                // +1 + nesting_depth (same as add_async)
+                let bonus = nesting_depth;
+                score += 1 + bonus;
+                async_penalty += 1 + bonus;
+            }
+
+            QualitasEvent::NestedCallback => {
+                // Arrow/lambda as callback: +nesting_depth (same as arrow handler)
+                if nesting_depth > 0 {
+                    score += nesting_depth;
+                    async_penalty += nesting_depth;
+                }
+            }
+
+            QualitasEvent::NestingEnter => {
+                nesting_depth += 1;
+                if nesting_depth > max_nesting_depth {
+                    max_nesting_depth = nesting_depth;
+                }
+            }
+
+            QualitasEvent::NestingExit => {
+                nesting_depth = nesting_depth.saturating_sub(1);
+            }
+
+            // Events consumed by other metrics — ignore here
+            _ => {}
+        }
+    }
+
+    CognitiveFlowResult {
+        score,
+        nesting_penalty,
+        base_increments,
+        async_penalty,
+        max_nesting_depth,
+    }
 }
 
 #[cfg(test)]
@@ -258,5 +351,105 @@ mod tests {
             "f",
         );
         assert_eq!(r.score, 3);
+    }
+
+    // ── Event-based tests ───────────────────────────────────────────────
+
+    fn cf(kind: ControlFlowKind) -> QualitasEvent {
+        QualitasEvent::ControlFlow(ControlFlowEvent {
+            kind,
+            has_else: false,
+            else_is_if: false,
+        })
+    }
+
+    #[test]
+    fn event_empty_is_zero() {
+        let r = compute_cfc(&[]);
+        assert_eq!(r.score, 0);
+        assert_eq!(r.max_nesting_depth, 0);
+    }
+
+    #[test]
+    fn event_single_if_is_one() {
+        let events = vec![
+            cf(ControlFlowKind::If),
+            QualitasEvent::NestingEnter,
+            QualitasEvent::NestingExit,
+        ];
+        let r = compute_cfc(&events);
+        assert_eq!(r.score, 1); // +1+0 = 1
+        assert_eq!(r.nesting_penalty, 0);
+    }
+
+    #[test]
+    fn event_nested_if_has_penalty() {
+        // outer if at depth=0: score += 1+0 = 1
+        // nesting enters depth=1
+        // inner if at depth=1: score += 1+1 = 2
+        // total = 3
+        let events = vec![
+            cf(ControlFlowKind::If),
+            QualitasEvent::NestingEnter,
+            cf(ControlFlowKind::If),
+            QualitasEvent::NestingEnter,
+            QualitasEvent::NestingExit,
+            QualitasEvent::NestingExit,
+        ];
+        let r = compute_cfc(&events);
+        assert_eq!(r.score, 3);
+        assert_eq!(r.nesting_penalty, 1);
+        assert_eq!(r.max_nesting_depth, 2);
+    }
+
+    #[test]
+    fn event_logic_ops_are_flat() {
+        // if(a && b || c) → if=1, &&=1, ||=1 → 3
+        let events = vec![
+            cf(ControlFlowKind::If),
+            QualitasEvent::LogicOp(LogicOpEvent::And),
+            QualitasEvent::LogicOp(LogicOpEvent::Or),
+            QualitasEvent::NestingEnter,
+            QualitasEvent::NestingExit,
+        ];
+        let r = compute_cfc(&events);
+        assert_eq!(r.score, 3);
+        assert_eq!(r.base_increments, 3);
+    }
+
+    #[test]
+    fn event_async_has_depth_penalty() {
+        // promise chain at depth=1: score += 1+1 = 2, async_penalty = 2
+        let events = vec![
+            QualitasEvent::NestingEnter, // depth 1
+            QualitasEvent::AsyncComplexity(AsyncEvent::PromiseChain),
+            QualitasEvent::NestingExit,
+        ];
+        let r = compute_cfc(&events);
+        assert_eq!(r.score, 2); // 1 + 1
+        assert_eq!(r.async_penalty, 2);
+    }
+
+    #[test]
+    fn event_nested_callback_at_depth() {
+        // callback at depth 2 → score += 2, async_penalty += 2
+        let events = vec![
+            QualitasEvent::NestingEnter, // depth 1
+            QualitasEvent::NestingEnter, // depth 2
+            QualitasEvent::NestedCallback,
+            QualitasEvent::NestingExit,
+            QualitasEvent::NestingExit,
+        ];
+        let r = compute_cfc(&events);
+        assert_eq!(r.score, 2);
+        assert_eq!(r.async_penalty, 2);
+    }
+
+    #[test]
+    fn event_recursive_call_is_flat() {
+        let events = vec![QualitasEvent::RecursiveCall];
+        let r = compute_cfc(&events);
+        assert_eq!(r.score, 1);
+        assert_eq!(r.base_increments, 1);
     }
 }

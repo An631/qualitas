@@ -87,6 +87,89 @@ pub const IMPORT_ERROR: u32 = 15;
 pub const API_CALLS_WARNING: u32 = 8;
 pub const API_CALLS_ERROR: u32 = 12;
 
+// ─── Resolved thresholds (per-language overrides merged with defaults) ────────
+
+use crate::ir::language::ThresholdOverrides;
+
+/// Thresholds with per-language overrides applied.
+/// Created by merging `ThresholdOverrides` (from a language adapter)
+/// with the global defaults defined above.
+#[allow(dead_code)]
+pub struct ResolvedThresholds {
+    pub norm_cfc: f64,
+    pub norm_dci_difficulty: f64,
+    pub norm_dci_volume: f64,
+    pub norm_irc: f64,
+    pub norm_sm_loc: f64,
+    pub norm_sm_params: f64,
+    pub norm_sm_nesting: f64,
+    pub norm_sm_returns: f64,
+    pub cfc_warning: u32,
+    pub cfc_error: u32,
+    pub loc_warning: u32,
+    pub loc_error: u32,
+    pub params_warning: u32,
+    pub params_error: u32,
+    pub nesting_warning: u32,
+    pub nesting_error: u32,
+    pub returns_warning: u32,
+    pub returns_error: u32,
+}
+
+#[allow(dead_code)]
+impl ResolvedThresholds {
+    /// Merge language-specific overrides with global defaults.
+    pub fn from_overrides(overrides: Option<&ThresholdOverrides>) -> Self {
+        match overrides {
+            Some(o) => Self {
+                norm_cfc: o.norm_cfc.unwrap_or(NORM_CFC),
+                norm_dci_difficulty: o.norm_dci_difficulty.unwrap_or(NORM_DCI_DIFFICULTY),
+                norm_dci_volume: o.norm_dci_volume.unwrap_or(NORM_DCI_VOLUME),
+                norm_irc: o.norm_irc.unwrap_or(NORM_IRC),
+                norm_sm_loc: o.norm_sm_loc.unwrap_or(NORM_SM_LOC),
+                norm_sm_params: o.norm_sm_params.unwrap_or(NORM_SM_PARAMS),
+                norm_sm_nesting: o.norm_sm_nesting.unwrap_or(NORM_SM_NESTING),
+                norm_sm_returns: o.norm_sm_returns.unwrap_or(NORM_SM_RETURNS),
+                cfc_warning: o.cfc_warning.unwrap_or(CFC_WARNING),
+                cfc_error: o.cfc_error.unwrap_or(CFC_ERROR),
+                loc_warning: o.loc_warning.unwrap_or(LOC_WARNING),
+                loc_error: o.loc_error.unwrap_or(LOC_ERROR),
+                params_warning: o.params_warning.unwrap_or(PARAMS_WARNING),
+                params_error: o.params_error.unwrap_or(PARAMS_ERROR),
+                nesting_warning: o.nesting_warning.unwrap_or(NESTING_WARNING),
+                nesting_error: o.nesting_error.unwrap_or(NESTING_ERROR),
+                returns_warning: o.returns_warning.unwrap_or(RETURNS_WARNING),
+                returns_error: o.returns_error.unwrap_or(RETURNS_ERROR),
+            },
+            None => Self::defaults(),
+        }
+    }
+
+    /// All-defaults (equivalent to TypeScript thresholds).
+    pub fn defaults() -> Self {
+        Self {
+            norm_cfc: NORM_CFC,
+            norm_dci_difficulty: NORM_DCI_DIFFICULTY,
+            norm_dci_volume: NORM_DCI_VOLUME,
+            norm_irc: NORM_IRC,
+            norm_sm_loc: NORM_SM_LOC,
+            norm_sm_params: NORM_SM_PARAMS,
+            norm_sm_nesting: NORM_SM_NESTING,
+            norm_sm_returns: NORM_SM_RETURNS,
+            cfc_warning: CFC_WARNING,
+            cfc_error: CFC_ERROR,
+            loc_warning: LOC_WARNING,
+            loc_error: LOC_ERROR,
+            params_warning: PARAMS_WARNING,
+            params_error: PARAMS_ERROR,
+            nesting_warning: NESTING_WARNING,
+            nesting_error: NESTING_ERROR,
+            returns_warning: RETURNS_WARNING,
+            returns_error: RETURNS_ERROR,
+        }
+    }
+}
+
 // ─── Named weight profiles ────────────────────────────────────────────────────
 
 pub fn weights_for_profile(profile: &str) -> WeightConfig {

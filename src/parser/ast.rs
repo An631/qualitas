@@ -1,14 +1,20 @@
+#[cfg(test)]
 use oxc_ast::ast::*;
+#[cfg(test)]
 use oxc_ast::visit::walk;
+#[cfg(test)]
 use oxc_ast::Visit;
+#[cfg(test)]
 use oxc_parser::Parser;
+#[cfg(test)]
 use oxc_allocator::Allocator;
+#[cfg(test)]
 use oxc_span::SourceType;
+#[cfg(test)]
 use oxc_syntax::scope::ScopeFlags;
 
-/// Info about a parsed function boundary.
-// Fields are read by BoundaryCollector internally; stored in ParsedFile for future
-// use when proper per-function location tracking is wired into the analyzer.
+/// Info about a parsed function boundary (legacy — used by tests only).
+#[cfg(test)]
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct FunctionInfo {
@@ -23,6 +29,7 @@ pub struct FunctionInfo {
     pub depth: u32,
 }
 
+#[cfg(test)]
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct ClassInfo {
@@ -32,10 +39,8 @@ pub struct ClassInfo {
     pub methods: Vec<FunctionInfo>,
 }
 
-/// Parsed representation of a source file.
-// `source`, `top_level_functions`, and `classes` are populated but currently
-// only `import_records` is consumed by the analyzer. The others are reserved
-// for future location-tracking and class-level dependency analysis.
+/// Parsed representation of a source file (legacy — used by tests only).
+#[cfg(test)]
 #[allow(dead_code)]
 pub struct ParsedFile {
     pub source: String,
@@ -44,6 +49,7 @@ pub struct ParsedFile {
     pub import_records: Vec<ImportRecord>,
 }
 
+#[cfg(test)]
 #[derive(Debug)]
 pub struct ImportRecord {
     pub source: String,
@@ -53,6 +59,7 @@ pub struct ImportRecord {
 }
 
 /// Parse source text and extract function/class boundaries + import records.
+#[cfg(test)]
 pub fn parse_source(source: &str, file_name: &str) -> Result<ParsedFile, String> {
     let allocator = Allocator::default();
     let source_type = SourceType::from_path(file_name)
@@ -89,6 +96,7 @@ pub fn parse_source(source: &str, file_name: &str) -> Result<ParsedFile, String>
 
 // ─── Boundary collector ───────────────────────────────────────────────────────
 
+#[cfg(test)]
 struct BoundaryCollector {
     top_level_functions: Vec<FunctionInfo>,
     classes: Vec<ClassInfo>,
@@ -97,6 +105,7 @@ struct BoundaryCollector {
     class_stack: Vec<usize>,
 }
 
+#[cfg(test)]
 impl BoundaryCollector {
     fn push_function(&mut self, info: FunctionInfo) {
         if let Some(&class_idx) = self.class_stack.last() {
@@ -107,6 +116,7 @@ impl BoundaryCollector {
     }
 }
 
+#[cfg(test)]
 impl<'a> Visit<'a> for BoundaryCollector {
     fn visit_import_declaration(&mut self, decl: &ImportDeclaration<'a>) {
         let source_str = decl.source.value.as_str();

@@ -2,6 +2,8 @@
 
 mod analyzer;
 mod constants;
+pub mod ir;
+mod languages;
 mod metrics;
 mod parser;
 mod scorer;
@@ -10,9 +12,9 @@ mod types;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-/// Analyze a TypeScript/JavaScript source string and return a FileQualityReport as JSON.
+/// Analyze source code and return a FileQualityReport as JSON.
 ///
-/// This is the primary entry point for the JS wrapper.
+/// Language is auto-detected from the `file_name` extension.
 /// Returns a JSON-serialized `FileQualityReport`.
 #[napi]
 pub fn analyze_source(source: String, file_name: String, options_json: Option<String>) -> Result<String> {
@@ -26,6 +28,24 @@ pub fn analyze_source(source: String, file_name: String, options_json: Option<St
 
     serde_json::to_string(&report)
         .map_err(|e| napi::Error::from_reason(e.to_string()))
+}
+
+/// List all supported languages and their file extensions.
+///
+/// Returns a JSON array of `{ name, extensions }` objects.
+#[napi]
+pub fn supported_languages() -> String {
+    let adapters = languages::list_adapters();
+    let langs: Vec<serde_json::Value> = adapters
+        .iter()
+        .map(|a| {
+            serde_json::json!({
+                "name": a.name(),
+                "extensions": a.extensions(),
+            })
+        })
+        .collect();
+    serde_json::to_string(&langs).unwrap_or_else(|_| "[]".to_string())
 }
 
 /// Analyze a TypeScript/JavaScript source string and return a compact summary.

@@ -2,13 +2,17 @@
 ///
 /// Fills the gap CC-Sonar misses: variable/operator density.
 /// From the PMC paper, Halstead Effort correlates r=0.901 with cognitive load.
+#[cfg(test)]
 use oxc_ast::ast::*;
+#[cfg(test)]
 use oxc_ast::visit::walk;
+#[cfg(test)]
 use oxc_ast::Visit;
 use std::collections::HashSet;
 
 use crate::types::{DataComplexityResult, HalsteadCounts};
 
+#[cfg(test)]
 pub struct DciVisitor {
     distinct_operators: HashSet<String>,
     distinct_operands: HashSet<String>,
@@ -16,6 +20,7 @@ pub struct DciVisitor {
     total_operands: u32,
 }
 
+#[cfg(test)]
 impl DciVisitor {
     pub fn new() -> Self {
         Self {
@@ -87,6 +92,7 @@ impl DciVisitor {
     }
 }
 
+#[cfg(test)]
 impl<'a> Visit<'a> for DciVisitor {
     fn visit_binary_expression(&mut self, it: &BinaryExpression<'a>) {
         self.op(it.operator.as_str());
@@ -170,10 +176,85 @@ impl<'a> Visit<'a> for DciVisitor {
 }
 
 /// Analyze DCI for a raw FunctionBody.
+#[cfg(test)]
 pub fn analyze_dci_body<'a>(body: &FunctionBody<'a>) -> DataComplexityResult {
     let mut v = DciVisitor::new();
     v.visit_function_body(body);
     v.compute()
+}
+
+// ─── Event-based DCI computation ────────────────────────────────────────────
+
+use crate::ir::events::*;
+
+/// Compute DCI (Halstead metrics) from a stream of IR events (language-agnostic).
+pub fn compute_dci(events: &[QualitasEvent]) -> DataComplexityResult {
+    let mut distinct_operators: HashSet<String> = HashSet::new();
+    let mut distinct_operands: HashSet<String> = HashSet::new();
+    let mut total_operators: u32 = 0;
+    let mut total_operands: u32 = 0;
+
+    for event in events {
+        match event {
+            QualitasEvent::Operator(op) => {
+                distinct_operators.insert(op.name.clone());
+                total_operators += 1;
+            }
+            QualitasEvent::Operand(operand) => {
+                distinct_operands.insert(operand.name.clone());
+                total_operands += 1;
+            }
+            _ => {}
+        }
+    }
+
+    let eta1 = distinct_operators.len() as f64;
+    let eta2 = distinct_operands.len() as f64;
+    let n1 = total_operators as f64;
+    let n2 = total_operands as f64;
+
+    let halstead = HalsteadCounts {
+        distinct_operators: eta1 as u32,
+        distinct_operands: eta2 as u32,
+        total_operators: n1 as u32,
+        total_operands: n2 as u32,
+    };
+
+    if eta1 + eta2 < 2.0 {
+        return DataComplexityResult {
+            halstead,
+            difficulty: 0.0,
+            volume: 0.0,
+            effort: 0.0,
+            raw_score: 0.0,
+        };
+    }
+
+    let vocabulary = eta1 + eta2;
+    let length = n1 + n2;
+    let volume = if vocabulary > 1.0 {
+        length * vocabulary.log2()
+    } else {
+        0.0
+    };
+    let difficulty = if eta2 > 0.0 {
+        (eta1 / 2.0) * (n2 / eta2)
+    } else {
+        0.0
+    };
+    let effort = difficulty * volume;
+
+    let raw_score =
+        crate::constants::DCI_DIFFICULTY_WEIGHT * (difficulty / crate::constants::NORM_DCI_DIFFICULTY)
+            + crate::constants::DCI_VOLUME_WEIGHT * (volume / crate::constants::NORM_DCI_VOLUME);
+
+    DataComplexityResult {
+        halstead,
+        difficulty,
+        volume,
+        effort,
+        raw_score,
+    }
 }
 
 #[cfg(test)]
@@ -211,5 +292,50 @@ mod tests {
         let r = analyze_dci_from_source("function f(a, b) { return a + b; }");
         assert!(r.halstead.total_operators >= 1);
         assert!(r.halstead.total_operands >= 2);
+    }
+
+    // ── Event-based tests ───────────────────────────────────────────────
+
+    #[test]
+    fn event_empty_is_zero() {
+        let r = compute_dci(&[]);
+        assert_eq!(r.difficulty, 0.0);
+        assert_eq!(r.volume, 0.0);
+        assert_eq!(r.effort, 0.0);
+    }
+
+    #[test]
+    fn event_operators_and_operands() {
+        let events = vec![
+            QualitasEvent::Operand(OperandEvent { name: "a".into() }),
+            QualitasEvent::Operator(OperatorEvent { name: "+".into() }),
+            QualitasEvent::Operand(OperandEvent { name: "b".into() }),
+        ];
+        let r = compute_dci(&events);
+        assert_eq!(r.halstead.distinct_operators, 1); // "+"
+        assert_eq!(r.halstead.distinct_operands, 2);  // "a", "b"
+        assert_eq!(r.halstead.total_operators, 1);
+        assert_eq!(r.halstead.total_operands, 2);
+        assert!(r.volume > 0.0);
+        assert!(r.difficulty > 0.0);
+    }
+
+    #[test]
+    fn event_repeated_operands_increase_difficulty() {
+        let events = vec![
+            QualitasEvent::Operand(OperandEvent { name: "x".into() }),
+            QualitasEvent::Operator(OperatorEvent { name: "+".into() }),
+            QualitasEvent::Operand(OperandEvent { name: "x".into() }),
+            QualitasEvent::Operator(OperatorEvent { name: "+".into() }),
+            QualitasEvent::Operand(OperandEvent { name: "x".into() }),
+        ];
+        let r = compute_dci(&events);
+        // distinct_operators=1, distinct_operands=1, total_operators=2, total_operands=3
+        assert_eq!(r.halstead.distinct_operators, 1);
+        assert_eq!(r.halstead.distinct_operands, 1);
+        assert_eq!(r.halstead.total_operators, 2);
+        assert_eq!(r.halstead.total_operands, 3);
+        // D = (η1/2) * (N2/η2) = (1/2) * (3/1) = 1.5
+        assert!((r.difficulty - 1.5).abs() < 0.001);
     }
 }
