@@ -247,7 +247,7 @@ Options:
   -t, --threshold <n>     Exit code 1 if any score is below this  (default: 65)
   --flagged-only          Only show items needing refactoring
   --verbose               Show full metric breakdown per function
-  --scope <scope>         Report scope: function | class | file | module
+  --scope <scope>         Report scope: function | class | file | module  (default: function)
   --include-tests         Include test files (*.test.ts, *.spec.ts)
   -h, --help              Show help
   -V, --version           Show version
@@ -260,6 +260,15 @@ Options:
 | `0` | All scores at or above threshold |
 | `1` | One or more scores below threshold |
 | `2` | Parse error or file not found |
+
+### `--scope` detail
+
+| Value | What is shown |
+| --- | --- |
+| `function` (default) | Per-function rows with flags and (optionally) metric breakdown |
+| `class` | Class aggregate score and class-level flags only; standalone functions hidden |
+| `file` | File header and score summary only; no function or class detail |
+| `module` | Project summary stats only; no per-file expansion (project analysis only) |
 
 ### Examples
 
@@ -288,10 +297,21 @@ qualitas ./src/ --flagged-only --verbose
 ## Programmatic API
 
 ```typescript
-import { analyzeSource, analyzeFile, analyzeProject } from 'qualitas-ts';
-import type { FileQualityReport, AnalysisOptions } from 'qualitas-ts';
+import { quickScore, analyzeSource, analyzeFile, analyzeProject } from 'qualitas-ts';
+import type { FileQualityReport, QuickScore, AnalysisOptions } from 'qualitas-ts';
 
-// Analyze source code directly (synchronous — no file I/O)
+// Fast check — returns only score, grade, and top flags (no full metric breakdown)
+const qs: QuickScore = quickScore(`
+  function add(a: number, b: number) { return a + b; }
+`, 'add.ts');
+
+console.log(qs.score);               // e.g. 98
+console.log(qs.grade);               // 'A'
+console.log(qs.needsRefactoring);    // false
+console.log(qs.flaggedFunctionCount); // 0
+console.log(qs.topFlags);            // []
+
+// Full analysis — returns complete metric breakdown per function/class
 const report = analyzeSource(`
   function add(a: number, b: number) {
     return a + b;
@@ -300,7 +320,7 @@ const report = analyzeSource(`
 
 console.log(report.score);   // e.g. 98
 console.log(report.grade);   // 'A'
-console.log(report.needsRefactoring); // false
+console.log(report.functions[0].metrics.cognitiveFlow.score); // raw CFC value
 
 // Analyze a file
 const fileReport = await analyzeFile('./src/payment.ts', {
@@ -315,6 +335,29 @@ const projectReport = await analyzeProject('./src/', {
 });
 
 console.log(projectReport.summary.flaggedFunctions); // count of functions needing refactoring
+```
+
+### `quickScore` vs `analyzeSource`
+
+| | `quickScore` | `analyzeSource` |
+| --- | --- | --- |
+| Return type | `QuickScore` | `FileQualityReport` |
+| Per-function metrics | ✗ | ✓ |
+| Score + grade | ✓ | ✓ |
+| Top flags (up to 5) | ✓ | ✓ (per function) |
+| Use case | Editor plugins, CI pass/fail | Full reports, dashboards |
+
+### `QuickScore`
+
+```typescript
+interface QuickScore {
+  score: number;               // 0–100 composite score
+  grade: 'A' | 'B' | 'C' | 'D' | 'F';
+  needsRefactoring: boolean;
+  functionCount: number;
+  flaggedFunctionCount: number;
+  topFlags: RefactoringFlag[]; // up to 5, from the worst functions
+}
 ```
 
 ### `AnalysisOptions`
@@ -561,12 +604,16 @@ Located inline in each module (`#[cfg(test)]`). Cover:
 
 ### JavaScript integration tests (`npm test`)
 
-Located in `tests/js/scorer.test.ts`. Exercise the full stack (Rust → napi binding → JS wrapper):
-- Clean code scores ≥ 80 (grade A)
-- Deeply nested code scores < 65 (grade D, flagged)
-- `TOO_MANY_PARAMS` flag triggers correctly
-- Clean code scores higher than complex code (monotonicity)
-- Score is always in [0, 100]
+35 tests in `tests/js/scorer.test.ts`. Exercise the full stack (Rust → napi binding → JS wrapper):
+
+- Clean code scores ≥ 80, complex code triggers flags
+- `TOO_MANY_PARAMS`, `DEEP_NESTING`, `TOO_LONG`, `HIGH_IDENTIFIER_CHURN` flags all verified
+- `SourceLocation` reports 1-based line numbers (not byte offsets)
+- DC metric correctly counts distinct API calls per function
+- All function collection patterns: named functions, arrow functions, object literals, export default, class property arrows, class methods
+- `quickScore()` returns compact summary matching `analyzeSource()` score
+- `--scope` filtering (function/class/file) verified on reporter output
+- Scoring invariants: monotonicity, bounds [0, 100], `ScoreBreakdown` penalty sum
 
 ---
 
