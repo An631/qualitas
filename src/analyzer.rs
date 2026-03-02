@@ -156,6 +156,7 @@ impl<'src> FnBodyCollector<'src> {
         }
     }
 
+    /// Analyze a `Function` node (declaration or expression) and collect it.
     fn analyze_fn(
         &self,
         func: &Function<'_>,
@@ -180,47 +181,7 @@ impl<'src> FnBodyCollector<'src> {
             );
             (cfc, dci, irc, dc, sm)
         } else {
-            (
-                CognitiveFlowResult {
-                    score: 0,
-                    nesting_penalty: 0,
-                    base_increments: 0,
-                    async_penalty: 0,
-                    max_nesting_depth: 0,
-                },
-                DataComplexityResult {
-                    halstead: HalsteadCounts {
-                        distinct_operators: 0,
-                        distinct_operands: 0,
-                        total_operators: 0,
-                        total_operands: 0,
-                    },
-                    difficulty: 0.0,
-                    volume: 0.0,
-                    effort: 0.0,
-                    raw_score: 0.0,
-                },
-                IdentifierRefResult { total_irc: 0.0, hotspots: vec![] },
-                DependencyCouplingResult {
-                    import_count: 0,
-                    distinct_sources: 0,
-                    external_ratio: 0.0,
-                    external_packages: vec![],
-                    internal_modules: vec![],
-                    distinct_api_calls: 0,
-                    closure_captures: 0,
-                    raw_score: 0.0,
-                },
-                StructuralResult {
-                    loc: 0,
-                    total_lines: 0,
-                    parameter_count: param_count,
-                    max_nesting_depth: 0,
-                    return_count: 0,
-                    method_count: None,
-                    raw_score: 0.0,
-                },
-            )
+            zero_metrics(param_count)
         };
 
         CollectedFunction {
@@ -238,6 +199,46 @@ impl<'src> FnBodyCollector<'src> {
         }
     }
 
+    /// Analyze an `ArrowFunctionExpression` node and collect it.
+    ///
+    /// Calling code must NOT recurse into the arrow body afterwards —
+    /// consistent with how `visit_function` returns without walking.
+    fn collect_arrow(
+        &mut self,
+        arrow: &ArrowFunctionExpression<'_>,
+        name: String,
+        inferred_name: Option<String>,
+    ) {
+        let param_count = arrow.params.items.len() as u32;
+        let start_line = byte_to_line(self.source, arrow.span.start);
+        let end_line = byte_to_line(self.source, arrow.span.end);
+        let body: &FunctionBody = &arrow.body;
+        let cfc = analyze_cfc_body(body, &name);
+        let dci = analyze_dci_body(body);
+        let irc = analyze_irc_body(body, self.source);
+        let dc = analyze_function_dependencies(body, self.imported_names);
+        let sm = analyze_structural_body(
+            body,
+            self.source,
+            arrow.span.start,
+            arrow.span.end,
+            param_count,
+        );
+        self.push_fn(CollectedFunction {
+            name,
+            inferred_name,
+            start_line,
+            end_line,
+            is_async: arrow.r#async,
+            is_generator: false,
+            cfc,
+            dci,
+            irc,
+            dc,
+            sm,
+        });
+    }
+
     fn push_fn(&mut self, cf: CollectedFunction) {
         if let Some(&ci) = self.class_stack.last() {
             self.classes[ci].methods.push(cf);
@@ -248,7 +249,11 @@ impl<'src> FnBodyCollector<'src> {
     }
 }
 
+// ─── Visitor implementation ────────────────────────────────────────────────────
+
 impl<'a> Visit<'a> for FnBodyCollector<'_> {
+    /// `function foo() {}` and class method `foo() {}` (FunctionDeclaration /
+    /// FunctionExpression — both share the `Function` AST node).
     fn visit_function(&mut self, func: &Function<'a>, _flags: ScopeFlags) {
         let name = func
             .id
@@ -258,14 +263,16 @@ impl<'a> Visit<'a> for FnBodyCollector<'_> {
             .to_string();
         let cf = self.analyze_fn(func, &name, None);
         self.push_fn(cf);
-        // Don't recurse into nested functions — they're collected separately at top level
+        // Don't recurse into nested functions — they're collected at top level only
     }
 
+    /// `const foo = () => {}` and `const foo = function() {}`
+    /// Also recurses for other initialisers (object literals, etc.) so that
+    /// nested patterns handled by other overrides are still visited.
     fn visit_variable_declarator(&mut self, decl: &VariableDeclarator<'a>) {
         let name = match &decl.id.kind {
             BindingPatternKind::BindingIdentifier(id) => id.name.to_string(),
             _ => {
-                // still walk to find nested functions
                 use oxc_ast::visit::walk;
                 walk::walk_variable_declarator(self, decl);
                 return;
@@ -275,44 +282,15 @@ impl<'a> Visit<'a> for FnBodyCollector<'_> {
         if let Some(init) = &decl.init {
             match init {
                 Expression::FunctionExpression(f) => {
-                    let inferred = Some(format!("const {name} = "));
+                    let inferred = Some(format!("const {name} = function"));
                     let cf = self.analyze_fn(f, &name, inferred);
                     self.push_fn(cf);
-                    return;
+                    return; // don't recurse
                 }
                 Expression::ArrowFunctionExpression(arrow) => {
-                    let param_count = arrow.params.items.len() as u32;
                     let inferred = Some(format!("const {name} = "));
-                    let start_line = byte_to_line(self.source, arrow.span.start);
-                    let end_line = byte_to_line(self.source, arrow.span.end);
-                    // arrow.body is Box<'a, FunctionBody<'a>>, deref directly
-                    let body: &FunctionBody = &*arrow.body;
-                    let cfc = analyze_cfc_body(body, &name);
-                    let dci = analyze_dci_body(body);
-                    let irc = analyze_irc_body(body, self.source);
-                    let dc = analyze_function_dependencies(body, self.imported_names);
-                    let sm = analyze_structural_body(
-                        body,
-                        self.source,
-                        arrow.span.start,
-                        arrow.span.end,
-                        param_count,
-                    );
-                    let cf = CollectedFunction {
-                        name: name.clone(),
-                        inferred_name: inferred,
-                        start_line,
-                        end_line,
-                        is_async: arrow.r#async,
-                        is_generator: false,
-                        cfc,
-                        dci,
-                        irc,
-                        dc,
-                        sm,
-                    };
-                    self.push_fn(cf);
-                    return;
+                    self.collect_arrow(arrow, name, inferred);
+                    return; // don't recurse
                 }
                 _ => {}
             }
@@ -320,6 +298,87 @@ impl<'a> Visit<'a> for FnBodyCollector<'_> {
 
         use oxc_ast::visit::walk;
         walk::walk_variable_declarator(self, decl);
+    }
+
+    /// `{ method: () => {} }` and `{ helper: function() {} }`
+    ///
+    /// Iterates properties explicitly so each arrow/function value gets the
+    /// property key as its name, and we avoid recursing into collected bodies.
+    fn visit_object_expression(&mut self, obj: &ObjectExpression<'a>) {
+        for prop in &obj.properties {
+            if let ObjectPropertyKind::ObjectProperty(p) = prop {
+                let name = property_key_name(&p.key);
+                match &p.value {
+                    Expression::ArrowFunctionExpression(arrow) => {
+                        self.collect_arrow(arrow, name, None);
+                        // don't recurse into this body
+                    }
+                    Expression::FunctionExpression(f) => {
+                        let cf = self.analyze_fn(f, &name, None);
+                        self.push_fn(cf);
+                        // don't recurse into this body
+                    }
+                    other => {
+                        // For any other value (nested object, array, call, etc.)
+                        // continue the normal visitor dispatch so nested patterns work
+                        self.visit_expression(other);
+                    }
+                }
+            }
+            // SpreadElement / SpreadProperty: no function definitions directly
+        }
+    }
+
+    /// `export default () => {}` and `export default function() {}`
+    fn visit_export_default_declaration(&mut self, decl: &ExportDefaultDeclaration<'a>) {
+        use oxc_ast::visit::walk;
+        match &decl.declaration {
+            ExportDefaultDeclarationKind::ArrowFunctionExpression(arrow) => {
+                self.collect_arrow(
+                    arrow,
+                    "(default)".to_string(),
+                    Some("export default ".to_string()),
+                );
+            }
+            ExportDefaultDeclarationKind::FunctionDeclaration(f) => {
+                let name = f
+                    .id
+                    .as_ref()
+                    .map(|id| id.name.as_str())
+                    .unwrap_or("(default)")
+                    .to_string();
+                let cf = self.analyze_fn(f, &name, Some("export default ".to_string()));
+                self.push_fn(cf);
+            }
+            _ => {
+                walk::walk_export_default_declaration(self, decl);
+            }
+        }
+    }
+
+    /// `class Foo { method(args) {} }` — class method definitions.
+    ///
+    /// The `Function` node inside a `MethodDefinition` has `id = None`, so the
+    /// name must come from `MethodDefinition.key`.  By overriding here (without
+    /// recursing) we avoid `visit_function` giving the method an "(anonymous)" name.
+    fn visit_method_definition(&mut self, method: &MethodDefinition<'a>) {
+        let name = property_key_name(&method.key);
+        let cf = self.analyze_fn(&method.value, &name, None);
+        self.push_fn(cf);
+        // Don't recurse — prevents visit_function from re-collecting with "(anonymous)"
+    }
+
+    /// `class Foo { method = () => {} }` — class property arrows.
+    /// Regular class methods (`foo() {}`) are handled by `visit_method_definition`.
+    fn visit_property_definition(&mut self, prop: &PropertyDefinition<'a>) {
+        use oxc_ast::visit::walk;
+        if let Some(Expression::ArrowFunctionExpression(arrow)) = &prop.value {
+            let name = property_key_name(&prop.key);
+            self.collect_arrow(arrow, name, None);
+            // don't recurse into the arrow body
+        } else {
+            walk::walk_property_definition(self, prop);
+        }
     }
 
     fn visit_class(&mut self, class: &Class<'a>) {
@@ -347,6 +406,69 @@ impl<'a> Visit<'a> for FnBodyCollector<'_> {
 
         self.class_stack.pop();
     }
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/// Extract a displayable name from a property key.
+fn property_key_name(key: &PropertyKey<'_>) -> String {
+    match key {
+        PropertyKey::StaticIdentifier(id) => id.name.to_string(),
+        PropertyKey::StringLiteral(s) => s.value.to_string(),
+        PropertyKey::NumericLiteral(n) => n.value.to_string(),
+        _ => "(computed)".to_string(),
+    }
+}
+
+/// All-zero metric results for abstract / body-less functions.
+fn zero_metrics(param_count: u32) -> (
+    CognitiveFlowResult,
+    DataComplexityResult,
+    IdentifierRefResult,
+    DependencyCouplingResult,
+    StructuralResult,
+) {
+    (
+        CognitiveFlowResult {
+            score: 0,
+            nesting_penalty: 0,
+            base_increments: 0,
+            async_penalty: 0,
+            max_nesting_depth: 0,
+        },
+        DataComplexityResult {
+            halstead: HalsteadCounts {
+                distinct_operators: 0,
+                distinct_operands: 0,
+                total_operators: 0,
+                total_operands: 0,
+            },
+            difficulty: 0.0,
+            volume: 0.0,
+            effort: 0.0,
+            raw_score: 0.0,
+        },
+        IdentifierRefResult { total_irc: 0.0, hotspots: vec![] },
+        DependencyCouplingResult {
+            import_count: 0,
+            distinct_sources: 0,
+            external_ratio: 0.0,
+            external_packages: vec![],
+            internal_modules: vec![],
+            distinct_api_calls: 0,
+            closure_captures: 0,
+            raw_score: 0.0,
+        },
+        StructuralResult {
+            loc: 0,
+            total_lines: 0,
+            parameter_count: param_count,
+            max_nesting_depth: 0,
+            return_count: 0,
+            method_count: None,
+            raw_score: 0.0,
+        },
+    )
 }
 
 // ─── Report assembly ──────────────────────────────────────────────────────────
