@@ -1,9 +1,20 @@
 /// TypeScript/JavaScript language adapter.
 ///
-/// Uses oxc_parser for native-speed AST analysis and emits QualitasEvents
+/// Uses `oxc_parser` for native-speed AST analysis and emits `QualitasEvents`
 /// for the language-agnostic metric collectors.
 use oxc_allocator::Allocator;
-use oxc_ast::ast::*;
+use oxc_ast::ast::{
+    ArrowFunctionExpression, AssignmentExpression, AwaitExpression, BinaryExpression,
+    BindingIdentifier, BindingPatternKind, BooleanLiteral, BreakStatement, CallExpression,
+    CatchClause, ChainExpression, Class, ConditionalExpression, ContinueStatement,
+    DoWhileStatement, ExportDefaultDeclaration, ExportDefaultDeclarationKind, Expression,
+    ForInStatement, ForOfStatement, ForStatement, Function, FunctionBody, IdentifierReference,
+    IfStatement, ImportDeclaration, ImportDeclarationSpecifier, LabeledStatement,
+    LogicalExpression, MethodDefinition, NullLiteral, NumericLiteral, ObjectExpression,
+    ObjectPropertyKind, PropertyDefinition, PropertyKey, ReturnStatement, Statement, StringLiteral,
+    SwitchStatement, TSAsExpression, TSNonNullExpression, TSTypeAssertion, TemplateLiteral,
+    ThisExpression, UnaryExpression, UpdateExpression, VariableDeclarator, WhileStatement,
+};
 use oxc_ast::visit::walk;
 use oxc_ast::Visit;
 use oxc_parser::Parser;
@@ -11,14 +22,19 @@ use oxc_span::SourceType;
 use oxc_syntax::scope::ScopeFlags;
 use std::collections::HashSet;
 
-use crate::ir::events::*;
-use crate::ir::language::*;
+use crate::ir::events::{
+    ApiCallEvent, AsyncEvent, ControlFlowEvent, ControlFlowKind, IdentEvent, LogicOpEvent,
+    OperandEvent, OperatorEvent, QualitasEvent,
+};
+use crate::ir::language::{
+    ClassExtraction, FileExtraction, FunctionExtraction, ImportRecord, LanguageAdapter,
+};
 use crate::parser::ast::byte_to_line;
 
 pub struct TypeScriptAdapter;
 
 impl LanguageAdapter for TypeScriptAdapter {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "TypeScript/JavaScript"
     }
 
@@ -36,7 +52,7 @@ impl LanguageAdapter for TypeScriptAdapter {
             let msg = parse_result
                 .errors
                 .iter()
-                .map(|e| e.to_string())
+                .map(std::string::ToString::to_string)
                 .collect::<Vec<_>>()
                 .join("; ");
             eprintln!("qualitas parse warning for {file_path}: {msg}");
@@ -97,11 +113,7 @@ impl<'src> TsExtractor<'src> {
     ) -> FunctionExtraction {
         let param_count = func.params.items.len() as u32;
         let events = if let Some(body) = &func.body {
-            let mut emitter = TsBodyEventEmitter::new(
-                self.source,
-                name,
-                &self.imported_names,
-            );
+            let mut emitter = TsBodyEventEmitter::new(self.source, name, &self.imported_names);
             emitter.visit_function_body(body);
             emitter.events
         } else {
@@ -199,8 +211,7 @@ impl<'a> Visit<'a> for TsExtractor<'_> {
         let name = func
             .id
             .as_ref()
-            .map(|id| id.name.as_str())
-            .unwrap_or("(anonymous)")
+            .map_or("(anonymous)", |id| id.name.as_str())
             .to_string();
         let fe = self.extract_function(func, &name, None);
         self.push_fn(fe);
@@ -212,12 +223,11 @@ impl<'a> Visit<'a> for TsExtractor<'_> {
     /// Also recurses for other initialisers (object literals, etc.) so that
     /// nested patterns handled by other overrides are still visited.
     fn visit_variable_declarator(&mut self, decl: &VariableDeclarator<'a>) {
-        let name = match &decl.id.kind {
-            BindingPatternKind::BindingIdentifier(id) => id.name.to_string(),
-            _ => {
-                walk::walk_variable_declarator(self, decl);
-                return;
-            }
+        let name = if let BindingPatternKind::BindingIdentifier(id) = &decl.id.kind {
+            id.name.to_string()
+        } else {
+            walk::walk_variable_declarator(self, decl);
+            return;
         };
 
         if let Some(init) = &decl.init {
@@ -275,12 +285,10 @@ impl<'a> Visit<'a> for TsExtractor<'_> {
                 );
             }
             ExportDefaultDeclarationKind::FunctionDeclaration(f) => {
-                let name = f
-                    .id
-                    .as_ref()
-                    .map(|id| id.name.as_str())
-                    .unwrap_or("(default)")
-                    .to_string();
+                let name =
+                    f.id.as_ref()
+                        .map_or("(default)", |id| id.name.as_str())
+                        .to_string();
                 let fe = self.extract_function(f, &name, Some("export default ".to_string()));
                 self.push_fn(fe);
             }
@@ -317,8 +325,7 @@ impl<'a> Visit<'a> for TsExtractor<'_> {
         let name = class
             .id
             .as_ref()
-            .map(|id| id.name.as_str())
-            .unwrap_or("(anonymous class)")
+            .map_or("(anonymous class)", |id| id.name.as_str())
             .to_string();
 
         let ce = ClassExtraction {
@@ -350,7 +357,7 @@ struct TsBodyEventEmitter<'src> {
     #[allow(dead_code)]
     source: &'src str,
     imported_names: &'src HashSet<String>,
-    /// CFC nesting depth (for NestedCallback detection)
+    /// CFC nesting depth (for `NestedCallback` detection)
     nesting_depth: u32,
 }
 
@@ -370,11 +377,12 @@ impl<'a> Visit<'a> for TsBodyEventEmitter<'_> {
     // ── CFC: Control flow ───────────────────────────────────────────────
 
     fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
-        self.events.push(QualitasEvent::ControlFlow(ControlFlowEvent {
-            kind: ControlFlowKind::If,
-            has_else: it.alternate.is_some(),
-            else_is_if: matches!(&it.alternate, Some(Statement::IfStatement(_))),
-        }));
+        self.events
+            .push(QualitasEvent::ControlFlow(ControlFlowEvent {
+                kind: ControlFlowKind::If,
+                has_else: it.alternate.is_some(),
+                else_is_if: matches!(&it.alternate, Some(Statement::IfStatement(_))),
+            }));
 
         // Visit test expression — captures &&/||, operands, operators
         self.visit_expression(&it.test);
@@ -388,7 +396,8 @@ impl<'a> Visit<'a> for TsBodyEventEmitter<'_> {
             match alt {
                 Statement::IfStatement(_) => {
                     // else-if: +1 flat, then recursively visit the inner if
-                    self.events.push(QualitasEvent::LogicOp(LogicOpEvent::Ternary));
+                    self.events
+                        .push(QualitasEvent::LogicOp(LogicOpEvent::Ternary));
                     // NOTE: The inner IfStatement visit will emit its own ControlFlow(If)
                     // via visit_if_statement, adding the nesting-aware increment.
                     // The LogicOp above is +1 flat for the else-if branch.
@@ -406,11 +415,12 @@ impl<'a> Visit<'a> for TsBodyEventEmitter<'_> {
     }
 
     fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
-        self.events.push(QualitasEvent::ControlFlow(ControlFlowEvent {
-            kind: ControlFlowKind::For,
-            has_else: false,
-            else_is_if: false,
-        }));
+        self.events
+            .push(QualitasEvent::ControlFlow(ControlFlowEvent {
+                kind: ControlFlowKind::For,
+                has_else: false,
+                else_is_if: false,
+            }));
         self.events.push(QualitasEvent::NestingEnter);
         self.nesting_depth += 1;
         walk::walk_for_statement(self, it);
@@ -419,11 +429,12 @@ impl<'a> Visit<'a> for TsBodyEventEmitter<'_> {
     }
 
     fn visit_for_in_statement(&mut self, it: &ForInStatement<'a>) {
-        self.events.push(QualitasEvent::ControlFlow(ControlFlowEvent {
-            kind: ControlFlowKind::ForIn,
-            has_else: false,
-            else_is_if: false,
-        }));
+        self.events
+            .push(QualitasEvent::ControlFlow(ControlFlowEvent {
+                kind: ControlFlowKind::ForIn,
+                has_else: false,
+                else_is_if: false,
+            }));
         self.events.push(QualitasEvent::NestingEnter);
         self.nesting_depth += 1;
         walk::walk_for_in_statement(self, it);
@@ -432,11 +443,12 @@ impl<'a> Visit<'a> for TsBodyEventEmitter<'_> {
     }
 
     fn visit_for_of_statement(&mut self, it: &ForOfStatement<'a>) {
-        self.events.push(QualitasEvent::ControlFlow(ControlFlowEvent {
-            kind: ControlFlowKind::ForOf,
-            has_else: false,
-            else_is_if: false,
-        }));
+        self.events
+            .push(QualitasEvent::ControlFlow(ControlFlowEvent {
+                kind: ControlFlowKind::ForOf,
+                has_else: false,
+                else_is_if: false,
+            }));
         self.events.push(QualitasEvent::NestingEnter);
         self.nesting_depth += 1;
         walk::walk_for_of_statement(self, it);
@@ -445,11 +457,12 @@ impl<'a> Visit<'a> for TsBodyEventEmitter<'_> {
     }
 
     fn visit_while_statement(&mut self, it: &WhileStatement<'a>) {
-        self.events.push(QualitasEvent::ControlFlow(ControlFlowEvent {
-            kind: ControlFlowKind::While,
-            has_else: false,
-            else_is_if: false,
-        }));
+        self.events
+            .push(QualitasEvent::ControlFlow(ControlFlowEvent {
+                kind: ControlFlowKind::While,
+                has_else: false,
+                else_is_if: false,
+            }));
         self.events.push(QualitasEvent::NestingEnter);
         self.nesting_depth += 1;
         walk::walk_while_statement(self, it);
@@ -458,11 +471,12 @@ impl<'a> Visit<'a> for TsBodyEventEmitter<'_> {
     }
 
     fn visit_do_while_statement(&mut self, it: &DoWhileStatement<'a>) {
-        self.events.push(QualitasEvent::ControlFlow(ControlFlowEvent {
-            kind: ControlFlowKind::DoWhile,
-            has_else: false,
-            else_is_if: false,
-        }));
+        self.events
+            .push(QualitasEvent::ControlFlow(ControlFlowEvent {
+                kind: ControlFlowKind::DoWhile,
+                has_else: false,
+                else_is_if: false,
+            }));
         self.events.push(QualitasEvent::NestingEnter);
         self.nesting_depth += 1;
         walk::walk_do_while_statement(self, it);
@@ -471,11 +485,12 @@ impl<'a> Visit<'a> for TsBodyEventEmitter<'_> {
     }
 
     fn visit_switch_statement(&mut self, it: &SwitchStatement<'a>) {
-        self.events.push(QualitasEvent::ControlFlow(ControlFlowEvent {
-            kind: ControlFlowKind::Switch,
-            has_else: false,
-            else_is_if: false,
-        }));
+        self.events
+            .push(QualitasEvent::ControlFlow(ControlFlowEvent {
+                kind: ControlFlowKind::Switch,
+                has_else: false,
+                else_is_if: false,
+            }));
         self.events.push(QualitasEvent::NestingEnter);
         self.nesting_depth += 1;
         walk::walk_switch_statement(self, it);
@@ -484,11 +499,12 @@ impl<'a> Visit<'a> for TsBodyEventEmitter<'_> {
     }
 
     fn visit_catch_clause(&mut self, it: &CatchClause<'a>) {
-        self.events.push(QualitasEvent::ControlFlow(ControlFlowEvent {
-            kind: ControlFlowKind::Catch,
-            has_else: false,
-            else_is_if: false,
-        }));
+        self.events
+            .push(QualitasEvent::ControlFlow(ControlFlowEvent {
+                kind: ControlFlowKind::Catch,
+                has_else: false,
+                else_is_if: false,
+            }));
         self.events.push(QualitasEvent::NestingEnter);
         self.nesting_depth += 1;
         walk::walk_catch_clause(self, it);
@@ -515,7 +531,8 @@ impl<'a> Visit<'a> for TsBodyEventEmitter<'_> {
 
     fn visit_conditional_expression(&mut self, it: &ConditionalExpression<'a>) {
         // CFC: +1 flat for ternary
-        self.events.push(QualitasEvent::LogicOp(LogicOpEvent::Ternary));
+        self.events
+            .push(QualitasEvent::LogicOp(LogicOpEvent::Ternary));
         // DCI: record as operator
         self.events.push(QualitasEvent::Operator(OperatorEvent {
             name: "?:".to_string(),
@@ -719,10 +736,11 @@ impl<'a> Visit<'a> for TsBodyEventEmitter<'_> {
     // ── IRC: Declarations ───────────────────────────────────────────────
 
     fn visit_binding_identifier(&mut self, it: &BindingIdentifier<'a>) {
-        self.events.push(QualitasEvent::IdentDeclaration(IdentEvent {
-            name: it.name.as_str().to_string(),
-            byte_offset: it.span.start,
-        }));
+        self.events
+            .push(QualitasEvent::IdentDeclaration(IdentEvent {
+                name: it.name.as_str().to_string(),
+                byte_offset: it.span.start,
+            }));
     }
 
     // ── SM: Return statements ───────────────────────────────────────────

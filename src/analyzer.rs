@@ -16,7 +16,10 @@ use crate::scorer::{
     composite::{aggregate_scores, compute_score},
     thresholds::{generate_flags, grade_from_score},
 };
-use crate::types::*;
+use crate::types::{
+    AnalysisOptions, ClassQualityReport, FileQualityReport, FunctionQualityReport, MetricBreakdown,
+    SourceLocation, StructuralResult, WeightConfig,
+};
 
 pub fn analyze_source_str(
     source: &str,
@@ -43,8 +46,8 @@ pub fn analyze_source_str(
         imports,
     } = extraction;
 
-    let fn_count = functions.len() as u32
-        + classes.iter().map(|c| c.methods.len() as u32).sum::<u32>();
+    let fn_count =
+        functions.len() as u32 + classes.iter().map(|c| c.methods.len() as u32).sum::<u32>();
     let class_count = classes.len() as u32;
 
     // 4. Build per-function reports from event streams
@@ -131,7 +134,13 @@ fn build_fn_report_from_events(
     let dci = compute_dci(&fe.events);
     let irc = compute_irc(&fe.events, source);
     let dc = compute_dc_from_events(&fe.events, imports);
-    let sm = compute_sm_from_events(&fe.events, source, fe.byte_start, fe.byte_end, fe.param_count);
+    let sm = compute_sm_from_events(
+        &fe.events,
+        source,
+        fe.byte_start,
+        fe.byte_end,
+        fe.param_count,
+    );
 
     let metrics = MetricBreakdown {
         cognitive_flow: cfc,

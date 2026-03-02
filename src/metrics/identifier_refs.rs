@@ -79,12 +79,19 @@ impl IrcVisitor {
             })
             .collect();
 
-        hotspots.sort_by(|a, b| b.cost.partial_cmp(&a.cost).unwrap_or(std::cmp::Ordering::Equal));
+        hotspots.sort_by(|a, b| {
+            b.cost
+                .partial_cmp(&a.cost)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         let total_irc: f64 = hotspots.iter().map(|h| h.cost).sum();
         hotspots.truncate(10);
 
-        IdentifierRefResult { total_irc, hotspots }
+        IdentifierRefResult {
+            total_irc,
+            hotspots,
+        }
     }
 }
 
@@ -146,7 +153,7 @@ pub fn analyze_irc_body<'a>(body: &FunctionBody<'a>, source: &str) -> Identifier
 
 // ─── Event-based IRC computation ────────────────────────────────────────────
 
-use crate::ir::events::*;
+use crate::ir::events::QualitasEvent;
 
 /// Compute IRC from a stream of IR events (language-agnostic).
 ///
@@ -199,7 +206,7 @@ pub fn compute_irc(events: &[QualitasEvent], source: &str) -> IdentifierRefResul
         .filter(|(_, e)| e.reference_count > 0)
         .map(|(name, e)| {
             let span = e.last_reference_line.saturating_sub(e.definition_line);
-            let cost = (e.reference_count as f64) * ((span as f64 + 1.0).log2());
+            let cost = f64::from(e.reference_count) * ((f64::from(span) + 1.0).log2());
             IdentifierHotspot {
                 name,
                 reference_count: e.reference_count,
@@ -211,24 +218,34 @@ pub fn compute_irc(events: &[QualitasEvent], source: &str) -> IdentifierRefResul
         })
         .collect();
 
-    hotspots.sort_by(|a, b| b.cost.partial_cmp(&a.cost).unwrap_or(std::cmp::Ordering::Equal));
+    hotspots.sort_by(|a, b| {
+        b.cost
+            .partial_cmp(&a.cost)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let total_irc: f64 = hotspots.iter().map(|h| h.cost).sum();
     hotspots.truncate(10);
 
-    IdentifierRefResult { total_irc, hotspots }
+    IdentifierRefResult {
+        total_irc,
+        hotspots,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::events::IdentEvent;
     use oxc_allocator::Allocator;
     use oxc_parser::Parser;
     use oxc_span::SourceType;
 
     fn analyze_irc_from_source(source: &str) -> IdentifierRefResult {
         let alloc = Allocator::default();
-        let st = SourceType::default().with_typescript(true).with_module(true);
+        let st = SourceType::default()
+            .with_typescript(true)
+            .with_module(true);
         let result = Parser::new(&alloc, source, st).parse();
         for stmt in &result.program.body {
             if let Statement::FunctionDeclaration(f) = stmt {
@@ -237,7 +254,10 @@ mod tests {
                 }
             }
         }
-        IdentifierRefResult { total_irc: 0.0, hotspots: vec![] }
+        IdentifierRefResult {
+            total_irc: 0.0,
+            hotspots: vec![],
+        }
     }
 
     #[test]
@@ -259,12 +279,10 @@ mod tests {
     fn event_unused_is_zero() {
         // Declare x at offset 0, but never reference it
         let source = "const x = 1;\n";
-        let events = vec![
-            QualitasEvent::IdentDeclaration(IdentEvent {
-                name: "x".into(),
-                byte_offset: 6, // points somewhere in the source
-            }),
-        ];
+        let events = vec![QualitasEvent::IdentDeclaration(IdentEvent {
+            name: "x".into(),
+            byte_offset: 6, // points somewhere in the source
+        })];
         let r = compute_irc(&events, source);
         assert_eq!(r.total_irc, 0.0);
     }

@@ -26,11 +26,8 @@ export function generateReport(records: any[]): string {
   const summaryLines = Object.entries(summary)
     .map(([k, v]) => `  ${k}: ${v}`)
     .join('\n');
-  const errorSection = errors.length > 0
-    ? '\nErrors:\n' + errors.map(e => '  ' + e).join('\n')
-    : '';
+  const errorSection =
+    errors.length > 0 ? '\nErrors:\n' + errors.map((e) => '  ' + e).join('\n') : '';
 
-  return [header, summaryLines, ...sections, errorSection]
-    .filter(Boolean)
-    .join('\n');
+  return [header, summaryLines, ...sections, errorSection].filter(Boolean).join('\n');
 }

@@ -1,6 +1,13 @@
 // Expected: low score (grade D or F), HIGH_COGNITIVE_FLOW flag, DEEP_NESTING flag
 
-export function processOrders(orders: any[], config: any, logger: any, db: any, cache: any, validator: any) {
+export function processOrders(
+  orders: any[],
+  config: any,
+  logger: any,
+  db: any,
+  cache: any,
+  validator: any,
+) {
   const results: any[] = [];
   for (const order of orders) {
     if (order.status === 'pending') {

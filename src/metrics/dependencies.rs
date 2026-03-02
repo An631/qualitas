@@ -9,9 +9,9 @@ use oxc_ast::visit::walk;
 use oxc_ast::Visit;
 use std::collections::HashSet;
 
+use crate::ir::language::ImportRecord as IrImportRecordType;
 #[cfg(test)]
 use crate::parser::ast::ImportRecord;
-use crate::ir::language::ImportRecord as IrImportRecordType;
 use crate::types::DependencyCouplingResult;
 
 /// Analyze file-level import dependencies (from IR import records).
@@ -30,7 +30,7 @@ pub fn analyze_file_dependencies_ir(imports: &[IrImportRecordType]) -> Dependenc
     let import_count = imports.len() as u32;
     let distinct_sources = (external_packages.len() + internal_modules.len()) as u32;
     let external_ratio = if import_count > 0 {
-        external_packages.len() as f64 / import_count as f64
+        external_packages.len() as f64 / f64::from(import_count)
     } else {
         0.0
     };
@@ -98,7 +98,10 @@ fn root_package_name(source: &str) -> String {
 /// Collect all imported binding names.
 #[cfg(test)]
 pub fn collect_imported_names(imports: &[ImportRecord]) -> HashSet<String> {
-    imports.iter().flat_map(|r| r.names.iter().cloned()).collect()
+    imports
+        .iter()
+        .flat_map(|r| r.names.iter().cloned())
+        .collect()
 }
 
 /// Analyze function-level API call patterns.
@@ -129,15 +132,18 @@ pub fn analyze_function_dependencies(
 }
 
 pub fn compute_dc_raw(import_count: u32, external_ratio: f64, distinct_api_calls: u32) -> f64 {
-    use crate::constants::*;
-    DC_IMPORT_WEIGHT * (import_count as f64 / NORM_DC_IMPORTS)
+    use crate::constants::{
+        DC_API_CALLS_WEIGHT, DC_EXTERNAL_RATIO_WEIGHT, DC_IMPORT_WEIGHT, NORM_DC_API_CALLS,
+        NORM_DC_IMPORTS,
+    };
+    DC_IMPORT_WEIGHT * (f64::from(import_count) / NORM_DC_IMPORTS)
         + DC_EXTERNAL_RATIO_WEIGHT * external_ratio
-        + DC_API_CALLS_WEIGHT * (distinct_api_calls as f64 / NORM_DC_API_CALLS)
+        + DC_API_CALLS_WEIGHT * (f64::from(distinct_api_calls) / NORM_DC_API_CALLS)
 }
 
 // ─── Event-based DC computation ─────────────────────────────────────────────
 
-use crate::ir::events::*;
+use crate::ir::events::QualitasEvent;
 
 /// Compute function-level DC from a stream of IR events (language-agnostic).
 ///
@@ -170,7 +176,7 @@ pub fn compute_dc_from_events(
     let import_count = imports.len() as u32;
     let distinct_sources = (external_packages.len() + internal_modules.len()) as u32;
     let external_ratio = if import_count > 0 {
-        external_packages.len() as f64 / import_count as f64
+        external_packages.len() as f64 / f64::from(import_count)
     } else {
         0.0
     };
@@ -215,6 +221,8 @@ impl<'a, 'b> Visit<'b> for DcFunctionVisitor<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::events::ApiCallEvent;
+    use crate::ir::language::ImportRecord as IrImportRecordType;
 
     #[test]
     fn root_package_scoped() {

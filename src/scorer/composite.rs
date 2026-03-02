@@ -2,18 +2,18 @@
 ///
 /// Formula:
 ///   For each pillar i:
-///     penalty_i = saturation(raw_i) × weight_i × 100
-///   Quality Score = max(0, 100 − Σ(penalty_i))
+///     `penalty_i` = `saturation(raw_i)` × `weight_i` × 100
+///   Quality Score = max(0, 100 − `Σ(penalty_i)`)
 ///
 /// Saturation model (from PMC paper's saturation finding):
 ///   saturation(x) = 1 − e^(−K × x)
-///   K = SATURATION_K = 0.15
+///   K = `SATURATION_K` = 0.15
 ///
 /// This means at x=1.0 (exactly at the F-tier threshold), saturation ≈ 0.14.
 /// The full 100-point scale is never reached by a single pillar — the composite
 /// score degrades smoothly as pillars worsen.
-use crate::constants::*;
-use crate::types::*;
+use crate::constants::{weights_for_profile, NORM_CFC, NORM_IRC, SATURATION_K};
+use crate::types::{MetricBreakdown, ScoreBreakdown, WeightConfig};
 
 /// Apply the saturation function: 1 − e^(−k × x)
 /// Returns a value in [0, 1).
@@ -35,7 +35,7 @@ pub fn compute_score(
         .unwrap_or_else(|| weights_for_profile(profile.unwrap_or("default")));
 
     // Normalize each pillar to a 0–∞ raw score, then saturate to [0, 1)
-    let cfc_raw = metrics.cognitive_flow.score as f64 / NORM_CFC;
+    let cfc_raw = f64::from(metrics.cognitive_flow.score) / NORM_CFC;
     let dci_raw = metrics.data_complexity.raw_score;
     let irc_raw = metrics.identifier_reference.total_irc / NORM_IRC;
     let dc_raw = metrics.dependency_coupling.raw_score;
@@ -75,14 +75,18 @@ pub fn aggregate_scores(reports: &[(f64, u32)]) -> f64 {
     }
     reports
         .iter()
-        .map(|(score, loc)| score * (*loc.max(&1)) as f64)
+        .map(|(score, loc)| score * f64::from(*loc.max(&1)))
         .sum::<f64>()
-        / total_weight as f64
+        / f64::from(total_weight)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{
+        CognitiveFlowResult, DataComplexityResult, DependencyCouplingResult, HalsteadCounts,
+        IdentifierRefResult, StructuralResult,
+    };
 
     fn zero_metrics() -> MetricBreakdown {
         MetricBreakdown {

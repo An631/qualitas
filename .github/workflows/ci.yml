@@ -62,6 +62,12 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Check Prettier formatting
+        run: npx prettier --check "js/**/*.ts" "tests/**/*.ts"
+
+      - name: ESLint
+        run: npx eslint js/ tests/
+
       - name: Build native addon (release)
         run: npm run build
 

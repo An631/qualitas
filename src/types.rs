@@ -60,7 +60,7 @@ pub struct IdentifierHotspot {
     pub definition_line: u32,
     pub last_reference_line: u32,
     pub scope_span_lines: u32,
-    /// cost = reference_count × log2(scope_span_lines + 1)
+    /// cost = `reference_count` × `log2(scope_span_lines` + 1)
     pub cost: f64,
 }
 
@@ -78,7 +78,7 @@ pub struct IdentifierRefResult {
 pub struct DependencyCouplingResult {
     pub import_count: u32,
     pub distinct_sources: u32,
-    /// Fraction of imports from node_modules (0.0–1.0)
+    /// Fraction of imports from `node_modules` (0.0–1.0)
     pub external_ratio: f64,
     pub external_packages: Vec<String>,
     pub internal_modules: Vec<String>,

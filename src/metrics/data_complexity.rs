@@ -78,9 +78,9 @@ impl DciVisitor {
         };
         let effort = difficulty * volume;
 
-        let raw_score =
-            crate::constants::DCI_DIFFICULTY_WEIGHT * (difficulty / crate::constants::NORM_DCI_DIFFICULTY)
-                + crate::constants::DCI_VOLUME_WEIGHT * (volume / crate::constants::NORM_DCI_VOLUME);
+        let raw_score = crate::constants::DCI_DIFFICULTY_WEIGHT
+            * (difficulty / crate::constants::NORM_DCI_DIFFICULTY)
+            + crate::constants::DCI_VOLUME_WEIGHT * (volume / crate::constants::NORM_DCI_VOLUME);
 
         DataComplexityResult {
             halstead,
@@ -185,7 +185,7 @@ pub fn analyze_dci_body<'a>(body: &FunctionBody<'a>) -> DataComplexityResult {
 
 // ─── Event-based DCI computation ────────────────────────────────────────────
 
-use crate::ir::events::*;
+use crate::ir::events::QualitasEvent;
 
 /// Compute DCI (Halstead metrics) from a stream of IR events (language-agnostic).
 pub fn compute_dci(events: &[QualitasEvent]) -> DataComplexityResult {
@@ -210,8 +210,8 @@ pub fn compute_dci(events: &[QualitasEvent]) -> DataComplexityResult {
 
     let eta1 = distinct_operators.len() as f64;
     let eta2 = distinct_operands.len() as f64;
-    let n1 = total_operators as f64;
-    let n2 = total_operands as f64;
+    let n1 = f64::from(total_operators);
+    let n2 = f64::from(total_operands);
 
     let halstead = HalsteadCounts {
         distinct_operators: eta1 as u32,
@@ -244,9 +244,9 @@ pub fn compute_dci(events: &[QualitasEvent]) -> DataComplexityResult {
     };
     let effort = difficulty * volume;
 
-    let raw_score =
-        crate::constants::DCI_DIFFICULTY_WEIGHT * (difficulty / crate::constants::NORM_DCI_DIFFICULTY)
-            + crate::constants::DCI_VOLUME_WEIGHT * (volume / crate::constants::NORM_DCI_VOLUME);
+    let raw_score = crate::constants::DCI_DIFFICULTY_WEIGHT
+        * (difficulty / crate::constants::NORM_DCI_DIFFICULTY)
+        + crate::constants::DCI_VOLUME_WEIGHT * (volume / crate::constants::NORM_DCI_VOLUME);
 
     DataComplexityResult {
         halstead,
@@ -260,6 +260,7 @@ pub fn compute_dci(events: &[QualitasEvent]) -> DataComplexityResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::events::{OperandEvent, OperatorEvent};
     use oxc_allocator::Allocator;
     use oxc_ast::Visit;
     use oxc_parser::Parser;
@@ -267,7 +268,9 @@ mod tests {
 
     fn analyze_dci_from_source(source: &str) -> DataComplexityResult {
         let alloc = Allocator::default();
-        let st = SourceType::default().with_typescript(true).with_module(true);
+        let st = SourceType::default()
+            .with_typescript(true)
+            .with_module(true);
         let result = Parser::new(&alloc, source, st).parse();
         for stmt in &result.program.body {
             if let Statement::FunctionDeclaration(f) = stmt {
@@ -313,7 +316,7 @@ mod tests {
         ];
         let r = compute_dci(&events);
         assert_eq!(r.halstead.distinct_operators, 1); // "+"
-        assert_eq!(r.halstead.distinct_operands, 2);  // "a", "b"
+        assert_eq!(r.halstead.distinct_operands, 2); // "a", "b"
         assert_eq!(r.halstead.total_operators, 1);
         assert_eq!(r.halstead.total_operands, 2);
         assert!(r.volume > 0.0);

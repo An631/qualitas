@@ -32,8 +32,11 @@
     "prepublishOnly": "npm run build && npm run build:ts && npm test",
     "test": "jest",
     "test:rs": "cargo test",
-    "lint": "cargo clippy -- -D warnings",
-    "format": "cargo fmt && prettier --write \"js/**/*.ts\""
+    "lint": "npm run lint:rs && npm run lint:ts",
+    "lint:rs": "cargo clippy -- -D warnings",
+    "lint:ts": "eslint js/ tests/",
+    "format": "cargo fmt && prettier --write \"js/**/*.ts\" \"tests/**/*.ts\"",
+    "format:check": "cargo fmt --check && prettier --check \"js/**/*.ts\" \"tests/**/*.ts\""
   },
   "files": [
     "dist",
@@ -62,15 +65,19 @@
     "@napi-rs/cli": "^3",
     "@types/jest": "^29.5.0",
     "@types/node": "^22.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.56.1",
+    "@typescript-eslint/parser": "^8.56.1",
+    "eslint": "^10.0.2",
     "jest": "^29.0.0",
+    "prettier": "^3.8.1",
     "ts-jest": "^29.0.0",
     "typescript": "^5.4.0"
   },
   "optionalDependencies": {
     "@qualitas-ts/binding-darwin-arm64": "^0.1.0",
     "@qualitas-ts/binding-darwin-x64": "^0.1.0",
-    "@qualitas-ts/binding-linux-x64-gnu": "^0.1.0",
     "@qualitas-ts/binding-linux-arm64-gnu": "^0.1.0",
+    "@qualitas-ts/binding-linux-x64-gnu": "^0.1.0",
     "@qualitas-ts/binding-win32-x64-msvc": "^0.1.0"
   },
   "engines": {

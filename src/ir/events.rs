@@ -1,16 +1,16 @@
-/// Language-agnostic IR events emitted by language adapters.
-///
-/// Each event represents a single metric-relevant observation from an AST walk.
-/// The 5 metric collectors consume subsets of these events to compute their scores.
-///
-/// # Event ordering contract
-///
-/// Language adapters MUST emit events in AST walk order:
-/// - `NestingEnter` before events inside a block
-/// - `NestingExit` after events inside a block
-/// - `NestingEnter`/`NestingExit` must be balanced
-/// - `ControlFlow` is emitted at the point where the branch is encountered
-///   (before `NestingEnter` for the branch body)
+//! Language-agnostic IR events emitted by language adapters.
+//!
+//! Each event represents a single metric-relevant observation from an AST walk.
+//! The 5 metric collectors consume subsets of these events to compute their scores.
+//!
+//! # Event ordering contract
+//!
+//! Language adapters MUST emit events in AST walk order:
+//! - `NestingEnter` before events inside a block
+//! - `NestingExit` after events inside a block
+//! - `NestingEnter`/`NestingExit` must be balanced
+//! - `ControlFlow` is emitted at the point where the branch is encountered
+//!   (before `NestingEnter` for the branch body)
 
 /// A single event emitted by a language adapter while walking a function body.
 #[derive(Debug, Clone)]

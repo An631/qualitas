@@ -1,5 +1,3 @@
-#![deny(clippy::all)]
-
 mod analyzer;
 mod constants;
 pub mod ir;
@@ -12,22 +10,25 @@ mod types;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-/// Analyze source code and return a FileQualityReport as JSON.
+/// Analyze source code and return a `FileQualityReport` as JSON.
 ///
 /// Language is auto-detected from the `file_name` extension.
 /// Returns a JSON-serialized `FileQualityReport`.
 #[napi]
-pub fn analyze_source(source: String, file_name: String, options_json: Option<String>) -> Result<String> {
+pub fn analyze_source(
+    source: String,
+    file_name: String,
+    options_json: Option<String>,
+) -> Result<String> {
     let options: types::AnalysisOptions = options_json
         .as_deref()
         .map(|s| serde_json::from_str(s).unwrap_or_default())
         .unwrap_or_default();
 
     let report = analyzer::analyze_source_str(&source, &file_name, &options)
-        .map_err(|e| napi::Error::from_reason(e))?;
+        .map_err(napi::Error::from_reason)?;
 
-    serde_json::to_string(&report)
-        .map_err(|e| napi::Error::from_reason(e.to_string()))
+    serde_json::to_string(&report).map_err(|e| napi::Error::from_reason(e.to_string()))
 }
 
 /// List all supported languages and their file extensions.
@@ -54,7 +55,7 @@ pub fn supported_languages() -> String {
 pub fn quick_score(source: String, file_name: String) -> Result<String> {
     let options = types::AnalysisOptions::default();
     let report = analyzer::analyze_source_str(&source, &file_name, &options)
-        .map_err(|e| napi::Error::from_reason(e))?;
+        .map_err(napi::Error::from_reason)?;
 
     let summary = serde_json::json!({
         "score": report.score,
@@ -68,6 +69,5 @@ pub fn quick_score(source: String, file_name: String) -> Result<String> {
             .collect::<Vec<_>>(),
     });
 
-    serde_json::to_string(&summary)
-        .map_err(|e| napi::Error::from_reason(e.to_string()))
+    serde_json::to_string(&summary).map_err(|e| napi::Error::from_reason(e.to_string()))
 }

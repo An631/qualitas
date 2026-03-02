@@ -1,4 +1,6 @@
 #[cfg(test)]
+use oxc_allocator::Allocator;
+#[cfg(test)]
 use oxc_ast::ast::*;
 #[cfg(test)]
 use oxc_ast::visit::walk;
@@ -6,8 +8,6 @@ use oxc_ast::visit::walk;
 use oxc_ast::Visit;
 #[cfg(test)]
 use oxc_parser::Parser;
-#[cfg(test)]
-use oxc_allocator::Allocator;
 #[cfg(test)]
 use oxc_span::SourceType;
 #[cfg(test)]

@@ -21,7 +21,11 @@ struct SmVisitor {
 #[cfg(test)]
 impl SmVisitor {
     fn new() -> Self {
-        Self { nesting_depth: 0, max_nesting_depth: 0, return_count: 0 }
+        Self {
+            nesting_depth: 0,
+            max_nesting_depth: 0,
+            return_count: 0,
+        }
     }
 
     fn push(&mut self) {
@@ -73,7 +77,12 @@ pub fn analyze_structural_body(
     let mut visitor = SmVisitor::new();
     visitor.visit_function_body(body);
 
-    let raw_score = compute_sm_raw(loc, param_count, visitor.max_nesting_depth, visitor.return_count);
+    let raw_score = compute_sm_raw(
+        loc,
+        param_count,
+        visitor.max_nesting_depth,
+        visitor.return_count,
+    );
 
     StructuralResult {
         loc,
@@ -88,7 +97,7 @@ pub fn analyze_structural_body(
 
 // ─── Event-based SM computation ─────────────────────────────────────────────
 
-use crate::ir::events::*;
+use crate::ir::events::QualitasEvent;
 
 /// Compute structural metrics from a stream of IR events (language-agnostic).
 ///
@@ -157,11 +166,14 @@ pub fn compute_sm_from_events(
 }
 
 pub fn compute_sm_raw(loc: u32, params: u32, nesting: u32, returns: u32) -> f64 {
-    use crate::constants::*;
-    SM_LOC_WEIGHT * (loc as f64 / NORM_SM_LOC)
-        + SM_PARAMS_WEIGHT * (params as f64 / NORM_SM_PARAMS)
-        + SM_NESTING_WEIGHT * (nesting as f64 / NORM_SM_NESTING)
-        + SM_RETURNS_WEIGHT * (returns as f64 / NORM_SM_RETURNS)
+    use crate::constants::{
+        NORM_SM_LOC, NORM_SM_NESTING, NORM_SM_PARAMS, NORM_SM_RETURNS, SM_LOC_WEIGHT,
+        SM_NESTING_WEIGHT, SM_PARAMS_WEIGHT, SM_RETURNS_WEIGHT,
+    };
+    SM_LOC_WEIGHT * (f64::from(loc) / NORM_SM_LOC)
+        + SM_PARAMS_WEIGHT * (f64::from(params) / NORM_SM_PARAMS)
+        + SM_NESTING_WEIGHT * (f64::from(nesting) / NORM_SM_NESTING)
+        + SM_RETURNS_WEIGHT * (f64::from(returns) / NORM_SM_RETURNS)
 }
 
 #[cfg(test)]
@@ -173,13 +185,21 @@ mod tests {
 
     fn analyze_structural_from_source(source: &str) -> StructuralResult {
         let alloc = Allocator::default();
-        let st = SourceType::default().with_typescript(true).with_module(true);
+        let st = SourceType::default()
+            .with_typescript(true)
+            .with_module(true);
         let result = Parser::new(&alloc, source, st).parse();
         for stmt in &result.program.body {
             if let Statement::FunctionDeclaration(f) = stmt {
                 if let Some(body) = &f.body {
                     let param_count = f.params.items.len() as u32;
-                    return analyze_structural_body(body, source, f.span.start, f.span.end, param_count);
+                    return analyze_structural_body(
+                        body,
+                        source,
+                        f.span.start,
+                        f.span.end,
+                        param_count,
+                    );
                 }
             }
         }
@@ -210,7 +230,8 @@ mod tests {
 
     #[test]
     fn counts_nesting() {
-        let r = analyze_structural_from_source("function f(x) { if (x) { for (;;) { return 1; } } }");
+        let r =
+            analyze_structural_from_source("function f(x) { if (x) { for (;;) { return 1; } } }");
         assert!(r.max_nesting_depth >= 2);
     }
 
@@ -231,9 +252,9 @@ mod tests {
         let source = "function f(a) {\n  if (a) {\n    return 1;\n  }\n  return 0;\n}";
         let events = vec![
             QualitasEvent::NestingEnter,    // if block
-            QualitasEvent::ReturnStatement,  // return 1
+            QualitasEvent::ReturnStatement, // return 1
             QualitasEvent::NestingExit,
-            QualitasEvent::ReturnStatement,  // return 0
+            QualitasEvent::ReturnStatement, // return 0
         ];
         let r = compute_sm_from_events(&events, source, 0, source.len() as u32, 1);
         assert_eq!(r.parameter_count, 1);

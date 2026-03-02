@@ -34,8 +34,8 @@ unused_mut         = "warn"
 
 [lints.clippy]
 # Enable a useful subset of clippy lints
-all         = "warn"  # clippy::all (correctness + style)
-pedantic    = "warn"  # stricter checks
+all         = { level = "warn", priority = -1 }  # clippy::all (correctness + style)
+pedantic    = { level = "warn", priority = -1 }  # stricter checks
 
 # Allow some pedantic lints that are noisy for this codebase
 module_name_repetitions = "allow"  # e.g. CfcVisitor in cognitive_flow module
@@ -47,3 +47,8 @@ cast_possible_truncation= "allow"  # intentional u32 casts for counts
 cast_sign_loss          = "allow"
 too_many_lines          = "allow"  # visitor impls are intentionally long
 wildcard_imports        = "allow"  # `use oxc_ast::ast::*` is idiomatic for oxc
+similar_names           = "allow"  # dc_raw/dci_raw, dc_penalty/dci_penalty are distinct concepts
+match_same_arms         = "allow"  # keeping separate arms for clarity (e.g. "strict" profile)
+struct_field_names      = "allow"  # ScoreBreakdown fields intentionally share _penalty suffix
+needless_pass_by_value  = "allow"  # napi functions require owned String params
+doc_markdown            = "allow"  # formulas in doc comments use math notation

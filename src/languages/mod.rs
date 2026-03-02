@@ -19,11 +19,12 @@ fn all_adapters() -> Vec<Box<dyn LanguageAdapter>> {
     ]
 }
 
-/// Extension-to-adapter index, lazily initialized.
-static REGISTRY: OnceLock<(Vec<Box<dyn LanguageAdapter>>, HashMap<String, usize>)> =
-    OnceLock::new();
+type AdapterRegistry = (Vec<Box<dyn LanguageAdapter>>, HashMap<String, usize>);
 
-fn registry() -> &'static (Vec<Box<dyn LanguageAdapter>>, HashMap<String, usize>) {
+/// Extension-to-adapter index, lazily initialized.
+static REGISTRY: OnceLock<AdapterRegistry> = OnceLock::new();
+
+fn registry() -> &'static AdapterRegistry {
     REGISTRY.get_or_init(|| {
         let adapters = all_adapters();
         let mut ext_map = HashMap::new();

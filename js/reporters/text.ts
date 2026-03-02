@@ -17,11 +17,16 @@ export interface TextReporterOptions {
 
 function gradeColor(grade: Grade, text: string): string {
   switch (grade) {
-    case 'A': return pc.green(text);
-    case 'B': return pc.cyan(text);
-    case 'C': return pc.yellow(text);
-    case 'D': return pc.red(text);
-    case 'F': return pc.bgRed(pc.white(text));
+    case 'A':
+      return pc.green(text);
+    case 'B':
+      return pc.cyan(text);
+    case 'C':
+      return pc.yellow(text);
+    case 'D':
+      return pc.red(text);
+    case 'F':
+      return pc.bgRed(pc.white(text));
   }
 }
 
@@ -67,10 +72,10 @@ function renderFunction(fn: FunctionQualityReport, opts: TextReporterOptions): s
     const m = fn.metrics;
     lines.push(
       `      CFC: ${m.cognitiveFlow.score} (${scoreToGrade(100 - m.cognitiveFlow.score * 4)})  ` +
-      `DCI: ${m.dataComplexity.difficulty.toFixed(1)} (${scoreToGrade(100 - m.dataComplexity.difficulty)})  ` +
-      `IRC: ${m.identifierReference.totalIrc.toFixed(1)}  ` +
-      `Params: ${m.structural.parameterCount}  ` +
-      `LOC: ${m.structural.loc}`
+        `DCI: ${m.dataComplexity.difficulty.toFixed(1)} (${scoreToGrade(100 - m.dataComplexity.difficulty)})  ` +
+        `IRC: ${m.identifierReference.totalIrc.toFixed(1)}  ` +
+        `Params: ${m.structural.parameterCount}  ` +
+        `LOC: ${m.structural.loc}`,
     );
   }
 
@@ -97,7 +102,10 @@ function renderFileSummaryLine(report: FileQualityReport): string {
   );
 }
 
-export function renderFileReport(report: FileQualityReport, opts: TextReporterOptions = {}): string {
+export function renderFileReport(
+  report: FileQualityReport,
+  opts: TextReporterOptions = {},
+): string {
   const lines: string[] = [];
   const gradeStr = gradeColor(report.grade, report.grade);
   const scope = opts.scope ?? 'function';
@@ -117,7 +125,9 @@ export function renderFileReport(report: FileQualityReport, opts: TextReporterOp
     // Class-level: show class aggregates and their flags, skip standalone functions
     for (const cls of report.classes) {
       if (opts.flaggedOnly && !cls.needsRefactoring) continue;
-      lines.push(`  ${pc.cyan(`class ${cls.name}`)}  ${gradeColor(cls.grade, cls.grade)}  score: ${cls.score.toFixed(1)}`);
+      lines.push(
+        `  ${pc.cyan(`class ${cls.name}`)}  ${gradeColor(cls.grade, cls.grade)}  score: ${cls.score.toFixed(1)}`,
+      );
       if (cls.flags.length > 0) {
         lines.push('    ' + pc.dim('Flags:'));
         for (const flag of cls.flags) {
@@ -128,7 +138,7 @@ export function renderFileReport(report: FileQualityReport, opts: TextReporterOp
   } else {
     // scope: 'function' (default) — full per-function detail
     const fns = opts.flaggedOnly
-      ? report.functions.filter(f => f.needsRefactoring)
+      ? report.functions.filter((f) => f.needsRefactoring)
       : report.functions;
 
     for (const fn of fns) {
@@ -137,13 +147,15 @@ export function renderFileReport(report: FileQualityReport, opts: TextReporterOp
 
     for (const cls of report.classes) {
       const classFns = opts.flaggedOnly
-        ? cls.methods.filter(m => m.needsRefactoring)
+        ? cls.methods.filter((m) => m.needsRefactoring)
         : cls.methods;
 
       if (opts.flaggedOnly && classFns.length === 0) continue;
 
       lines.push('');
-      lines.push(`  ${pc.cyan(`class ${cls.name}`)}  ${gradeColor(cls.grade, cls.grade)}  score: ${cls.score.toFixed(1)}`);
+      lines.push(
+        `  ${pc.cyan(`class ${cls.name}`)}  ${gradeColor(cls.grade, cls.grade)}  score: ${cls.score.toFixed(1)}`,
+      );
       for (const m of classFns) {
         lines.push(renderFunction(m, opts));
       }
@@ -158,24 +170,29 @@ export function renderFileReport(report: FileQualityReport, opts: TextReporterOp
 
 // ─── Project report ───────────────────────────────────────────────────────────
 
-export function renderProjectReport(report: ProjectQualityReport, opts: TextReporterOptions = {}): string {
+export function renderProjectReport(
+  report: ProjectQualityReport,
+  opts: TextReporterOptions = {},
+): string {
   const lines: string[] = [];
   const scope = opts.scope ?? 'function';
 
   lines.push('');
   lines.push(pc.bold(`qualitas-ts project: ${report.dirPath}`));
-  lines.push(`${scoreBar(report.score)}  score: ${report.score.toFixed(1)}  grade: ${gradeColor(report.grade, report.grade)}`);
+  lines.push(
+    `${scoreBar(report.score)}  score: ${report.score.toFixed(1)}  grade: ${gradeColor(report.grade, report.grade)}`,
+  );
   lines.push('');
 
   const s = report.summary;
   lines.push(
     `  ${s.totalFiles} files  |  ${s.totalFunctions} functions  |  ` +
-    pc.red(`${s.flaggedFunctions} need refactoring`)
+      pc.red(`${s.flaggedFunctions} need refactoring`),
   );
   lines.push(
     `  Grades: ${pc.green('A:' + s.gradeDistribution.a)}  ${pc.cyan('B:' + s.gradeDistribution.b)}  ` +
-    `${pc.yellow('C:' + s.gradeDistribution.c)}  ${pc.red('D:' + s.gradeDistribution.d)}  ` +
-    `${pc.bgRed(pc.white('F:' + s.gradeDistribution.f))}`
+      `${pc.yellow('C:' + s.gradeDistribution.c)}  ${pc.red('D:' + s.gradeDistribution.d)}  ` +
+      `${pc.bgRed(pc.white('F:' + s.gradeDistribution.f))}`,
   );
 
   if (scope === 'module') {
@@ -187,7 +204,9 @@ export function renderProjectReport(report: ProjectQualityReport, opts: TextRepo
     lines.push('');
     lines.push(pc.bold('  Worst functions:'));
     for (const fn of report.worstFunctions.slice(0, 5)) {
-      lines.push(`    ${pc.red('✗')} ${fn.location.file}  ${pc.bold(fn.name)}()  score: ${fn.score.toFixed(0)}  ${gradeColor(fn.grade, fn.grade)}`);
+      lines.push(
+        `    ${pc.red('✗')} ${fn.location.file}  ${pc.bold(fn.name)}()  score: ${fn.score.toFixed(0)}  ${gradeColor(fn.grade, fn.grade)}`,
+      );
     }
   }
 

@@ -1,22 +1,27 @@
 #!/usr/bin/env node
 import { program } from 'commander';
-import { analyzeFile, analyzeProject, analyzeSource } from './index.js';
+import { analyzeFile, analyzeProject } from './index.js';
 import { renderFileReport, renderProjectReport } from './reporters/text.js';
 import { renderJsonReport } from './reporters/json.js';
 import { renderMarkdownReport, renderMarkdownProjectReport } from './reporters/markdown.js';
-import { readFileSync } from 'node:fs';
 import { statSync } from 'node:fs';
 import type { AnalysisOptions, ProfileName } from './types.js';
 
 program
   .name('qualitas')
-  .description('TypeScript/JavaScript code quality measurement — Quality Score 0–100 (higher = better)')
+  .description(
+    'TypeScript/JavaScript code quality measurement — Quality Score 0–100 (higher = better)',
+  )
   .version('0.1.0');
 
 program
   .argument('<path>', 'File or directory to analyze')
   .option('-f, --format <format>', 'Output format: text | json | markdown', 'text')
-  .option('-p, --profile <profile>', 'Weight profile: default | cc-focused | data-focused | strict', 'default')
+  .option(
+    '-p, --profile <profile>',
+    'Weight profile: default | cc-focused | data-focused | strict',
+    'default',
+  )
   .option('-t, --threshold <number>', 'Exit code 1 if any score is below this threshold', '65')
   .option('--flagged-only', 'Only show items needing refactoring')
   .option('--verbose', 'Show metric breakdown per function')
@@ -43,35 +48,40 @@ program
 
       if (stat.isDirectory()) {
         const report = await analyzeProject(targetPath, options);
-        belowThreshold = report.score < threshold ||
-          report.files.some(f => f.functions.some(fn => fn.score < threshold));
+        belowThreshold =
+          report.score < threshold ||
+          report.files.some((f) => f.functions.some((fn) => fn.score < threshold));
 
         if (opts.format === 'json') {
           console.log(renderJsonReport(report));
         } else if (opts.format === 'markdown') {
           console.log(renderMarkdownProjectReport(report));
         } else {
-          console.log(renderProjectReport(report, {
-            verbose: opts.verbose,
-            flaggedOnly: opts.flaggedOnly,
-            scope: opts.scope,
-          }));
+          console.log(
+            renderProjectReport(report, {
+              verbose: opts.verbose,
+              flaggedOnly: opts.flaggedOnly,
+              scope: opts.scope,
+            }),
+          );
         }
       } else {
         const report = await analyzeFile(targetPath, options);
-        belowThreshold = report.score < threshold ||
-          report.functions.some(fn => fn.score < threshold);
+        belowThreshold =
+          report.score < threshold || report.functions.some((fn) => fn.score < threshold);
 
         if (opts.format === 'json') {
           console.log(renderJsonReport(report));
         } else if (opts.format === 'markdown') {
           console.log(renderMarkdownReport(report));
         } else {
-          console.log(renderFileReport(report, {
-            verbose: opts.verbose,
-            flaggedOnly: opts.flaggedOnly,
-            scope: opts.scope,
-          }));
+          console.log(
+            renderFileReport(report, {
+              verbose: opts.verbose,
+              flaggedOnly: opts.flaggedOnly,
+              scope: opts.scope,
+            }),
+          );
         }
       }
 

@@ -17,9 +17,11 @@ function gradeBadge(grade: Grade): string {
 }
 
 function functionRow(fn: FunctionQualityReport): string {
-  const flagIcons = fn.flags.map(f => {
-    return f.severity === 'error' ? '🔴' : '🟡';
-  }).join('');
+  const flagIcons = fn.flags
+    .map((f) => {
+      return f.severity === 'error' ? '🔴' : '🟡';
+    })
+    .join('');
   return `| \`${fn.name}\` | ${fn.score.toFixed(1)} | ${fn.grade} | ${fn.metrics.cognitiveFlow.score} | ${fn.metrics.dataComplexity.difficulty.toFixed(1)} | ${fn.metrics.identifierReference.totalIrc.toFixed(1)} | ${fn.metrics.structural.parameterCount} | ${fn.metrics.structural.loc} | ${flagIcons || '✅'} |`;
 }
 
@@ -42,7 +44,7 @@ export function renderMarkdownReport(report: FileQualityReport): string {
     lines.push('');
   }
 
-  const flagged = report.functions.filter(f => f.flags.length > 0);
+  const flagged = report.functions.filter((f) => f.flags.length > 0);
   if (flagged.length > 0) {
     lines.push('### Refactoring Recommendations');
     lines.push('');
@@ -76,7 +78,9 @@ export function renderMarkdownProjectReport(report: ProjectQualityReport): strin
   lines.push(`| Files analyzed | ${s.totalFiles} |`);
   lines.push(`| Functions analyzed | ${s.totalFunctions} |`);
   lines.push(`| Functions needing refactoring | ${s.flaggedFunctions} |`);
-  lines.push(`| Grade distribution | A:${s.gradeDistribution.a} B:${s.gradeDistribution.b} C:${s.gradeDistribution.c} D:${s.gradeDistribution.d} F:${s.gradeDistribution.f} |`);
+  lines.push(
+    `| Grade distribution | A:${s.gradeDistribution.a} B:${s.gradeDistribution.b} C:${s.gradeDistribution.c} D:${s.gradeDistribution.d} F:${s.gradeDistribution.f} |`,
+  );
   lines.push('');
 
   if (report.worstFunctions.length > 0) {
@@ -86,7 +90,9 @@ export function renderMarkdownProjectReport(report: ProjectQualityReport): strin
     lines.push('|----------|------|-------|-------|----------|');
     for (const fn of report.worstFunctions) {
       const topFlag = fn.flags[0]?.message ?? '—';
-      lines.push(`| \`${fn.name}\` | \`${fn.location.file}\` | ${fn.score.toFixed(1)} | ${fn.grade} | ${topFlag} |`);
+      lines.push(
+        `| \`${fn.name}\` | \`${fn.location.file}\` | ${fn.score.toFixed(1)} | ${fn.grade} | ${topFlag} |`,
+      );
     }
   }
 

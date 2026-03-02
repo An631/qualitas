@@ -1,5 +1,4 @@
-import { readFileSync } from 'node:fs';
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
 
 import type {
@@ -14,7 +13,10 @@ import type {
 
 // ─── Native binding loader ────────────────────────────────────────────────────
 
-let _binding: { analyzeSource: (src: string, name: string, opts?: string) => string; quickScore: (src: string, name: string) => string } | null = null;
+let _binding: {
+  analyzeSource: (src: string, name: string, opts?: string) => string;
+  quickScore: (src: string, name: string) => string;
+} | null = null;
 
 function getBinding() {
   if (_binding) return _binding;
@@ -46,8 +48,8 @@ function getBinding() {
 
   throw new Error(
     'qualitas-ts: No native binding found. ' +
-    'Install the package via npm to get pre-built binaries, ' +
-    'or run `npm run build` in the package root to build from source.'
+      'Install the package via npm to get pre-built binaries, ' +
+      'or run `npm run build` in the package root to build from source.',
   );
 }
 
@@ -63,10 +65,7 @@ const TEST_PATTERNS = ['.test.', '.spec.', '.playwright-test.'];
  * Fast quality check — returns composite score, grade, refactoring flag, and top flags.
  * Faster than `analyzeSource` when you only need the summary (skips full metric breakdown).
  */
-export function quickScore(
-  source: string,
-  fileName = 'anonymous.ts'
-): QuickScore {
+export function quickScore(source: string, fileName = 'anonymous.ts'): QuickScore {
   const binding = getBinding();
   return JSON.parse(binding.quickScore(source, fileName)) as QuickScore;
 }
@@ -78,7 +77,7 @@ export function quickScore(
 export function analyzeSource(
   source: string,
   fileName = 'anonymous.ts',
-  options: AnalysisOptions = {}
+  options: AnalysisOptions = {},
 ): FileQualityReport {
   const binding = getBinding();
   const optsJson = JSON.stringify(options);
@@ -91,7 +90,7 @@ export function analyzeSource(
  */
 export async function analyzeFile(
   filePath: string,
-  options: AnalysisOptions = {}
+  options: AnalysisOptions = {},
 ): Promise<FileQualityReport> {
   const source = await readFile(filePath, 'utf8');
   const report = analyzeSource(source, filePath, options);
@@ -109,14 +108,14 @@ export async function analyzeFile(
  */
 export async function analyzeProject(
   dirPath: string,
-  options: AnalysisOptions = {}
+  options: AnalysisOptions = {},
 ): Promise<ProjectQualityReport> {
   const extensions = options.extensions ?? DEFAULT_EXTENSIONS;
   const excludePatterns = [...DEFAULT_EXCLUDE, ...(options.exclude ?? [])];
   const includeTests = options.includeTests ?? false;
 
   const files = await collectFiles(resolve(dirPath), extensions, excludePatterns, includeTests);
-  const fileReports = await Promise.all(files.map(f => analyzeFile(f, options)));
+  const fileReports = await Promise.all(files.map((f) => analyzeFile(f, options)));
 
   return buildProjectReport(dirPath, fileReports, options);
 }
@@ -127,13 +126,13 @@ async function collectFiles(
   dir: string,
   extensions: string[],
   exclude: string[],
-  includeTests: boolean
+  includeTests: boolean,
 ): Promise<string[]> {
   const results: string[] = [];
   const entries = await readdir(dir, { withFileTypes: true });
 
   for (const entry of entries) {
-    if (exclude.some(ex => entry.name === ex || entry.name.startsWith('.'))) continue;
+    if (exclude.some((ex) => entry.name === ex || entry.name.startsWith('.'))) continue;
 
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
@@ -142,7 +141,7 @@ async function collectFiles(
     } else if (entry.isFile()) {
       const ext = extname(entry.name);
       if (!extensions.includes(ext)) continue;
-      if (!includeTests && TEST_PATTERNS.some(p => entry.name.includes(p))) continue;
+      if (!includeTests && TEST_PATTERNS.some((p) => entry.name.includes(p))) continue;
       results.push(full);
     }
   }
@@ -152,7 +151,7 @@ async function collectFiles(
 function buildProjectReport(
   dirPath: string,
   fileReports: FileQualityReport[],
-  options: AnalysisOptions
+  options: AnalysisOptions,
 ): ProjectQualityReport {
   const threshold = options.refactoringThreshold ?? 65;
 
@@ -162,19 +161,22 @@ function buildProjectReport(
     for (const cls of fr.classes) allFunctions.push(...cls.methods);
   }
 
-  const totalWeight = allFunctions.reduce((sum, f) => sum + Math.max(f.metrics.structural.loc, 1), 0);
-  const weightedScore = totalWeight > 0
-    ? allFunctions.reduce((sum, f) => sum + f.score * Math.max(f.metrics.structural.loc, 1), 0) / totalWeight
-    : 100;
+  const totalWeight = allFunctions.reduce(
+    (sum, f) => sum + Math.max(f.metrics.structural.loc, 1),
+    0,
+  );
+  const weightedScore =
+    totalWeight > 0
+      ? allFunctions.reduce((sum, f) => sum + f.score * Math.max(f.metrics.structural.loc, 1), 0) /
+        totalWeight
+      : 100;
 
   const dist: GradeDistribution = { a: 0, b: 0, c: 0, d: 0, f: 0 };
   for (const f of allFunctions) {
     dist[f.grade.toLowerCase() as keyof GradeDistribution]++;
   }
 
-  const worstFunctions = [...allFunctions]
-    .sort((a, b) => a.score - b.score)
-    .slice(0, 10);
+  const worstFunctions = [...allFunctions].sort((a, b) => a.score - b.score).slice(0, 10);
 
   const grade = scoreToGrade(weightedScore);
 
@@ -188,8 +190,8 @@ function buildProjectReport(
       totalFiles: fileReports.length,
       totalFunctions: allFunctions.length,
       totalClasses: fileReports.reduce((s, f) => s + f.classCount, 0),
-      flaggedFiles: fileReports.filter(f => f.needsRefactoring).length,
-      flaggedFunctions: allFunctions.filter(f => f.needsRefactoring).length,
+      flaggedFiles: fileReports.filter((f) => f.needsRefactoring).length,
+      flaggedFunctions: allFunctions.filter((f) => f.needsRefactoring).length,
       averageScore: weightedScore,
       gradeDistribution: dist,
     },

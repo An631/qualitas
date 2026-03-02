@@ -213,7 +213,7 @@ pub fn analyze_cfc_body<'a>(body: &FunctionBody<'a>, fn_name: &str) -> Cognitive
 
 // ─── Event-based CFC computation ────────────────────────────────────────────
 
-use crate::ir::events::*;
+use crate::ir::events::QualitasEvent;
 
 /// Compute CFC from a stream of IR events (language-agnostic).
 ///
@@ -247,12 +247,7 @@ pub fn compute_cfc(events: &[QualitasEvent]) -> CognitiveFlowResult {
                 base_increments += 1;
             }
 
-            QualitasEvent::RecursiveCall => {
-                score += 1;
-                base_increments += 1;
-            }
-
-            QualitasEvent::LabeledFlow => {
+            QualitasEvent::RecursiveCall | QualitasEvent::LabeledFlow => {
                 score += 1;
                 base_increments += 1;
             }
@@ -300,6 +295,7 @@ pub fn compute_cfc(events: &[QualitasEvent]) -> CognitiveFlowResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::events::{AsyncEvent, ControlFlowEvent, ControlFlowKind, LogicOpEvent};
     use oxc_allocator::Allocator;
     use oxc_ast::Visit;
     use oxc_parser::Parser;
@@ -307,7 +303,9 @@ mod tests {
 
     fn analyze_function_cfc_from_source(source: &str, fn_name: &str) -> CognitiveFlowResult {
         let alloc = Allocator::default();
-        let st = SourceType::default().with_typescript(true).with_module(true);
+        let st = SourceType::default()
+            .with_typescript(true)
+            .with_module(true);
         let result = Parser::new(&alloc, source, st).parse();
         for stmt in &result.program.body {
             if let Statement::FunctionDeclaration(f) = stmt {
