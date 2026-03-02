@@ -27,8 +27,14 @@ pub struct ImportRecord {
 pub struct FunctionExtraction {
     pub name: String,
     pub inferred_name: Option<String>,
+    /// Byte offset of function start (used for LOC counting)
     pub byte_start: u32,
+    /// Byte offset of function end (used for LOC counting)
     pub byte_end: u32,
+    /// 1-based line number of function start (used in reports)
+    pub start_line: u32,
+    /// 1-based line number of function end (used in reports)
+    pub end_line: u32,
     pub param_count: u32,
     pub is_async: bool,
     pub is_generator: bool,
@@ -40,8 +46,14 @@ pub struct FunctionExtraction {
 #[derive(Debug)]
 pub struct ClassExtraction {
     pub name: String,
+    /// Byte offset of class start
     pub byte_start: u32,
+    /// Byte offset of class end
     pub byte_end: u32,
+    /// 1-based line number of class start (used in reports)
+    pub start_line: u32,
+    /// 1-based line number of class end (used in reports)
+    pub end_line: u32,
     pub methods: Vec<FunctionExtraction>,
 }
 

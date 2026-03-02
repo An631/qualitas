@@ -13,6 +13,7 @@ use std::collections::HashSet;
 
 use crate::ir::events::*;
 use crate::ir::language::*;
+use crate::parser::ast::byte_to_line;
 
 pub struct TypeScriptAdapter;
 
@@ -86,6 +87,8 @@ impl<'src> TsExtractor<'src> {
         }
     }
 
+    /// Analyze a `Function` node (declaration or expression) and produce a
+    /// `FunctionExtraction` with its event stream.
     fn extract_function(
         &self,
         func: &Function<'_>,
@@ -110,13 +113,58 @@ impl<'src> TsExtractor<'src> {
             inferred_name,
             byte_start: func.span.start,
             byte_end: func.span.end,
+            start_line: byte_to_line(self.source, func.span.start),
+            end_line: byte_to_line(self.source, func.span.end),
             param_count,
             is_async: func.r#async,
             is_generator: func.generator,
             events,
         }
     }
+
+    /// Analyze an `ArrowFunctionExpression` and collect it.
+    ///
+    /// Calling code must NOT recurse into the arrow body afterwards —
+    /// consistent with how `visit_function` returns without walking.
+    fn collect_arrow(
+        &mut self,
+        arrow: &ArrowFunctionExpression<'_>,
+        name: String,
+        inferred_name: Option<String>,
+    ) {
+        let param_count = arrow.params.items.len() as u32;
+        let body: &FunctionBody = &arrow.body;
+        let mut emitter = TsBodyEventEmitter::new(self.source, &name, &self.imported_names);
+        emitter.visit_function_body(body);
+
+        self.push_fn(FunctionExtraction {
+            name,
+            inferred_name,
+            byte_start: arrow.span.start,
+            byte_end: arrow.span.end,
+            start_line: byte_to_line(self.source, arrow.span.start),
+            end_line: byte_to_line(self.source, arrow.span.end),
+            param_count,
+            is_async: arrow.r#async,
+            is_generator: false,
+            events: emitter.events,
+        });
+    }
 }
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/// Extract a displayable name from a property key.
+fn property_key_name(key: &PropertyKey<'_>) -> String {
+    match key {
+        PropertyKey::StaticIdentifier(id) => id.name.to_string(),
+        PropertyKey::StringLiteral(s) => s.value.to_string(),
+        PropertyKey::NumericLiteral(n) => n.value.to_string(),
+        _ => "(computed)".to_string(),
+    }
+}
+
+// ─── Visitor implementation ──────────────────────────────────────────────────
 
 impl<'a> Visit<'a> for TsExtractor<'_> {
     fn visit_import_declaration(&mut self, decl: &ImportDeclaration<'a>) {
@@ -159,6 +207,10 @@ impl<'a> Visit<'a> for TsExtractor<'_> {
         // Don't recurse — nested functions are collected separately
     }
 
+    /// `const foo = () => {}` and `const foo = function() {}`
+    ///
+    /// Also recurses for other initialisers (object literals, etc.) so that
+    /// nested patterns handled by other overrides are still visited.
     fn visit_variable_declarator(&mut self, decl: &VariableDeclarator<'a>) {
         let name = match &decl.id.kind {
             BindingPatternKind::BindingIdentifier(id) => id.name.to_string(),
@@ -171,33 +223,14 @@ impl<'a> Visit<'a> for TsExtractor<'_> {
         if let Some(init) = &decl.init {
             match init {
                 Expression::FunctionExpression(f) => {
-                    let inferred = Some(format!("const {name} = "));
+                    let inferred = Some(format!("const {name} = function"));
                     let fe = self.extract_function(f, &name, inferred);
                     self.push_fn(fe);
                     return;
                 }
                 Expression::ArrowFunctionExpression(arrow) => {
-                    let param_count = arrow.params.items.len() as u32;
                     let inferred = Some(format!("const {name} = "));
-                    let body: &FunctionBody = &*arrow.body;
-                    let mut emitter = TsBodyEventEmitter::new(
-                        self.source,
-                        &name,
-                        &self.imported_names,
-                    );
-                    emitter.visit_function_body(body);
-
-                    let fe = FunctionExtraction {
-                        name: name.clone(),
-                        inferred_name: inferred,
-                        byte_start: arrow.span.start,
-                        byte_end: arrow.span.end,
-                        param_count,
-                        is_async: arrow.r#async,
-                        is_generator: false,
-                        events: emitter.events,
-                    };
-                    self.push_fn(fe);
+                    self.collect_arrow(arrow, name, inferred);
                     return;
                 }
                 _ => {}
@@ -205,6 +238,79 @@ impl<'a> Visit<'a> for TsExtractor<'_> {
         }
 
         walk::walk_variable_declarator(self, decl);
+    }
+
+    /// `{ method: () => {} }` and `{ helper: function() {} }`
+    ///
+    /// Iterates properties explicitly so each arrow/function value gets the
+    /// property key as its name, and we avoid recursing into collected bodies.
+    fn visit_object_expression(&mut self, obj: &ObjectExpression<'a>) {
+        for prop in &obj.properties {
+            if let ObjectPropertyKind::ObjectProperty(p) = prop {
+                let name = property_key_name(&p.key);
+                match &p.value {
+                    Expression::ArrowFunctionExpression(arrow) => {
+                        self.collect_arrow(arrow, name, None);
+                    }
+                    Expression::FunctionExpression(f) => {
+                        let fe = self.extract_function(f, &name, None);
+                        self.push_fn(fe);
+                    }
+                    other => {
+                        self.visit_expression(other);
+                    }
+                }
+            }
+        }
+    }
+
+    /// `export default () => {}` and `export default function() {}`
+    fn visit_export_default_declaration(&mut self, decl: &ExportDefaultDeclaration<'a>) {
+        match &decl.declaration {
+            ExportDefaultDeclarationKind::ArrowFunctionExpression(arrow) => {
+                self.collect_arrow(
+                    arrow,
+                    "(default)".to_string(),
+                    Some("export default ".to_string()),
+                );
+            }
+            ExportDefaultDeclarationKind::FunctionDeclaration(f) => {
+                let name = f
+                    .id
+                    .as_ref()
+                    .map(|id| id.name.as_str())
+                    .unwrap_or("(default)")
+                    .to_string();
+                let fe = self.extract_function(f, &name, Some("export default ".to_string()));
+                self.push_fn(fe);
+            }
+            _ => {
+                walk::walk_export_default_declaration(self, decl);
+            }
+        }
+    }
+
+    /// `class Foo { method(args) {} }` — class method definitions.
+    ///
+    /// The `Function` node inside a `MethodDefinition` has `id = None`, so the
+    /// name must come from `MethodDefinition.key`. By overriding here (without
+    /// recursing) we avoid `visit_function` giving the method an "(anonymous)" name.
+    fn visit_method_definition(&mut self, method: &MethodDefinition<'a>) {
+        let name = property_key_name(&method.key);
+        let fe = self.extract_function(&method.value, &name, None);
+        self.push_fn(fe);
+    }
+
+    /// `class Foo { method = () => {} }` — class property arrows.
+    ///
+    /// Regular class methods (`foo() {}`) are handled by `visit_method_definition`.
+    fn visit_property_definition(&mut self, prop: &PropertyDefinition<'a>) {
+        if let Some(Expression::ArrowFunctionExpression(arrow)) = &prop.value {
+            let name = property_key_name(&prop.key);
+            self.collect_arrow(arrow, name, None);
+        } else {
+            walk::walk_property_definition(self, prop);
+        }
     }
 
     fn visit_class(&mut self, class: &Class<'a>) {
@@ -219,6 +325,8 @@ impl<'a> Visit<'a> for TsExtractor<'_> {
             name,
             byte_start: class.span.start,
             byte_end: class.span.end,
+            start_line: byte_to_line(self.source, class.span.start),
+            end_line: byte_to_line(self.source, class.span.end),
             methods: Vec::new(),
         };
         let idx = self.classes.len();

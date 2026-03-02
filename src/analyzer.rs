@@ -157,8 +157,8 @@ fn build_fn_report_from_events(
         score_breakdown: breakdown,
         location: SourceLocation {
             file: String::new(),
-            start_line: fe.byte_start,
-            end_line: fe.byte_end,
+            start_line: fe.start_line,
+            end_line: fe.end_line,
             start_col: 0,
             end_col: 0,
         },
@@ -227,8 +227,8 @@ fn build_class_report_from_events(
         methods: method_reports,
         location: SourceLocation {
             file: String::new(),
-            start_line: ce.byte_start,
-            end_line: ce.byte_end,
+            start_line: ce.start_line,
+            end_line: ce.end_line,
             start_col: 0,
             end_col: 0,
         },
