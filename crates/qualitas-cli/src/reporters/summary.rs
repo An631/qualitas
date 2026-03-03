@@ -242,49 +242,25 @@ fn build_fn_items(fns: &[&FunctionQualityReport]) -> Vec<ScopeItem> {
 }
 
 fn render_function_flags(fns: &[&FunctionQualityReport]) -> Vec<String> {
-    let mut errors = 0u32;
-    let mut warnings = 0u32;
-    let mut fns_with_flags = 0u32;
-    let mut type_counts: HashMap<String, u32> = HashMap::new();
+    let all_flags: Vec<&RefactoringFlag> = fns.iter().flat_map(|f| &f.flags).collect();
+    let (errors, warnings) = count_severities(&all_flags);
+    let fns_with_flags = fns.iter().filter(|f| !f.flags.is_empty()).count();
+    let type_counts = count_flag_types(&all_flags);
 
-    for f in fns {
-        if !f.flags.is_empty() {
-            fns_with_flags += 1;
-        }
-        for flag in &f.flags {
-            match flag.severity {
-                Severity::Error => errors += 1,
-                Severity::Warning => warnings += 1,
-                Severity::Info => {}
-            }
-            *type_counts
-                .entry(flag_type_display(&flag.flag_type))
-                .or_insert(0) += 1;
-        }
-    }
-
-    let total = errors + warnings;
-    let mut lines = vec![section_header(&format!(
-        "Risk Flags ({} functions)",
-        fns.len()
-    ))];
-    lines.push(format!(
-        "  {}",
-        "Flags fire when individual metrics exceed warning/error thresholds.".dimmed()
+    let mut lines = vec![
+        section_header(&format!("Risk Flags ({} functions)", fns.len())),
+        format!(
+            "  {}",
+            "Flags fire when individual metrics exceed warning/error thresholds.".dimmed()
+        ),
+    ];
+    lines.extend(format_flag_totals(
+        errors,
+        warnings,
+        fns_with_flags,
+        fns.len(),
     ));
-
-    if total == 0 {
-        lines.push(format!("  {} No flags", "\u{2713}".green().bold()));
-    } else {
-        lines.push(format!(
-            "  {total} total: {} errors  {} warnings  in {fns_with_flags} of {} functions",
-            colorize_severity(errors, true),
-            colorize_severity(warnings, false),
-            fns.len(),
-        ));
-        lines.extend(render_top_flag_types(&type_counts));
-    }
-
+    lines.extend(render_top_flag_types(&type_counts));
     lines.push(String::new());
     lines
 }
@@ -302,11 +278,11 @@ fn render_pillar_health(fns: &[&FunctionQualityReport]) -> Vec<String> {
     let mut lines = vec![
         section_header("Pillar Health (per function)"),
         format!(
-            "  {:<30} {:>7}  {:>9}  {}",
+            "  {:<26} {:>6}  {:>8}  {}",
             "",
             "avg".dimmed(),
             "median".dimmed(),
-            "expected range".dimmed(),
+            "pass < warn < error".dimmed(),
         ),
     ];
 
@@ -315,30 +291,43 @@ fn render_pillar_health(fns: &[&FunctionQualityReport]) -> Vec<String> {
         fns,
         |f| f64::from(f.metrics.cognitive_flow.score),
         0,
-        "<13 good, 13\u{2013}19 warn, >19 high",
+        "0\u{2013}12 < 13\u{2013}19 < 19+",
     ));
     lines.push(pillar_row(
         "Data Complexity",
         fns,
         |f| f.metrics.data_complexity.difficulty,
         1,
-        "<26 good, 26\u{2013}41 warn, >41 high",
+        "0\u{2013}25 < 26\u{2013}41 < 41+",
     ));
     lines.push(pillar_row(
         "Identifier References",
         fns,
         |f| f.metrics.identifier_reference.total_irc,
         1,
-        "<41 good, 41\u{2013}71 warn, >71 high",
+        "0\u{2013}40 < 41\u{2013}71 < 71+",
     ));
     lines.push(pillar_row(
         "Dependency Coupling",
         fns,
-        |f| f.metrics.dependency_coupling.raw_score,
-        2,
-        "<0.3 good, 0.3\u{2013}0.6 warn, >0.6 high",
+        |f| f64::from(f.metrics.dependency_coupling.import_count),
+        0,
+        "0\u{2013}9 < 10\u{2013}15 < 15+",
     ));
-    lines.push(structural_row(fns));
+    lines.push(pillar_row(
+        "Structural LOC",
+        fns,
+        |f| f64::from(f.metrics.structural.loc),
+        0,
+        "0\u{2013}40 < 41\u{2013}61 < 61+",
+    ));
+    lines.push(pillar_row(
+        "Structural Params",
+        fns,
+        |f| f64::from(f.metrics.structural.parameter_count),
+        0,
+        "0\u{2013}3 < 4\u{2013}5 < 5+",
+    ));
 
     lines.push(String::new());
     lines
@@ -349,7 +338,7 @@ fn pillar_row(
     fns: &[&FunctionQualityReport],
     extract: impl Fn(&FunctionQualityReport) -> f64,
     decimals: usize,
-    hint: &str,
+    thresholds: &str,
 ) -> String {
     let vals: Vec<f64> = fns.iter().map(|f| extract(f)).collect();
     let fmt = |v: f64| match decimals {
@@ -358,29 +347,11 @@ fn pillar_row(
         _ => format!("{v:.2}"),
     };
     format!(
-        "  {:<30} {:>7}  {:>9}  {}",
+        "  {:<26} {:>6}  {:>8}  {}",
         name,
         fmt(avg(&vals)).bold(),
         fmt(median(&vals)).bold(),
-        hint.dimmed(),
-    )
-}
-
-fn structural_row(fns: &[&FunctionQualityReport]) -> String {
-    let locs: Vec<f64> = fns
-        .iter()
-        .map(|f| f64::from(f.metrics.structural.loc))
-        .collect();
-    let params: Vec<f64> = fns
-        .iter()
-        .map(|f| f64::from(f.metrics.structural.parameter_count))
-        .collect();
-    format!(
-        "  {:<30} {} LOC, {} params      {}",
-        "Structural",
-        format!("{:.0}", avg(&locs)).bold(),
-        format!("{:.1}", avg(&params)).bold(),
-        "<41 LOC good, <4 params good".dimmed(),
+        thresholds.dimmed(),
     )
 }
 
@@ -493,38 +464,49 @@ fn loc_weighted(
 // ─── Generic: Grade Histogram ────────────────────────────────────────────────
 
 fn render_grade_histogram(label: &str, items: &[ScopeItem]) -> Vec<String> {
+    let counts = count_grades(items);
+    let max_c = *counts.iter().max().unwrap_or(&1);
+    let max_c = max_c.max(1);
+    let total = items.len() as u32;
+
+    let grades = [
+        (Grade::A, "A"),
+        (Grade::B, "B"),
+        (Grade::C, "C"),
+        (Grade::D, "D"),
+        (Grade::F, "F"),
+    ];
+    let mut lines = vec![section_header(&format!("Grade Distribution ({label})"))];
+    for (i, (grade, lbl)) in grades.iter().enumerate() {
+        lines.push(format_histogram_row(*grade, lbl, counts[i], max_c, total));
+    }
+    lines.push(String::new());
+    lines
+}
+
+fn count_grades(items: &[ScopeItem]) -> [u32; 5] {
     let mut counts = [0u32; 5];
     for item in items {
         counts[grade_index(item.grade)] += 1;
     }
-    let grades = [
-        (Grade::A, "A", counts[0]),
-        (Grade::B, "B", counts[1]),
-        (Grade::C, "C", counts[2]),
-        (Grade::D, "D", counts[3]),
-        (Grade::F, "F", counts[4]),
-    ];
-    let max_c = grades.iter().map(|(_, _, c)| *c).max().unwrap_or(1).max(1);
-    let total = items.len() as u32;
+    counts
+}
 
+fn format_histogram_row(
+    grade: Grade,
+    label: &str,
+    count: u32,
+    max_count: u32,
+    total: u32,
+) -> String {
     let bar_width = 50;
-    let mut lines = vec![section_header(&format!("Grade Distribution ({label})"))];
-    for (grade, lbl, count) in &grades {
-        let filled = if max_c > 0 {
-            (f64::from(*count) / f64::from(max_c) * bar_width as f64).round() as usize
-        } else {
-            0
-        };
-        let bar = format!(
-            "{}{}",
-            grade_color(*grade, &"\u{2588}".repeat(filled)),
-            "\u{2591}".repeat(bar_width - filled),
-        );
-        let p = pct(*count, total);
-        lines.push(format!("  {lbl} {bar}  {count:>4} ({p})"));
-    }
-    lines.push(String::new());
-    lines
+    let filled = (f64::from(count) / f64::from(max_count) * bar_width as f64).round() as usize;
+    let bar = format!(
+        "{}{}",
+        grade_color(grade, &"\u{2588}".repeat(filled)),
+        "\u{2591}".repeat(bar_width - filled),
+    );
+    format!("  {label} {bar}  {count:>4} ({})", pct(count, total))
 }
 
 // ─── Generic: Worst Items ────────────────────────────────────────────────────
@@ -540,22 +522,7 @@ fn render_worst_items(scope: &str, items: &[ScopeItem]) -> Vec<String> {
     let mut lines = vec![section_header(&format!("{scope} by Score (worst first)"))];
     let show = sorted.len().min(10);
     for item in sorted.iter().take(show) {
-        let icon = if item.needs_refactoring {
-            "\u{2717}".red()
-        } else {
-            "\u{2713}".green()
-        };
-        let suffix = if item.flag_count > 0 {
-            format!("({} flags)", item.flag_count).dimmed().to_string()
-        } else {
-            String::new()
-        };
-        lines.push(format!(
-            "  {icon} {:<35} {:>5.1}  {}  {suffix}",
-            item.name,
-            item.score,
-            grade_color(item.grade, &item.grade.to_string()),
-        ));
+        lines.push(format_scope_item_line(item));
     }
     if sorted.len() > show {
         lines.push(format!(
@@ -568,42 +535,92 @@ fn render_worst_items(scope: &str, items: &[ScopeItem]) -> Vec<String> {
     lines
 }
 
+fn format_scope_item_line(item: &ScopeItem) -> String {
+    let icon = if item.needs_refactoring {
+        "\u{2717}".red()
+    } else {
+        "\u{2713}".green()
+    };
+    let suffix = if item.flag_count > 0 {
+        format!("({} flags)", item.flag_count).dimmed().to_string()
+    } else {
+        String::new()
+    };
+    format!(
+        "  {icon} {:<35} {:>5.1}  {}  {suffix}",
+        item.name,
+        item.score,
+        grade_color(item.grade, &item.grade.to_string()),
+    )
+}
+
 // ─── Generic: Flag Summary ───────────────────────────────────────────────────
 
 fn render_flag_summary(scope: &str, flags: &[&RefactoringFlag], total_items: usize) -> Vec<String> {
-    let mut errors = 0u32;
-    let mut warnings = 0u32;
-    for flag in flags {
-        match flag.severity {
-            Severity::Error => errors += 1,
-            Severity::Warning => warnings += 1,
-            Severity::Info => {}
-        }
-    }
-    let total = errors + warnings;
+    let (errors, warnings) = count_severities(flags);
     let plural = if scope.ends_with('s') {
         format!("{scope}es")
     } else {
         format!("{scope}s")
     };
     let mut lines = vec![section_header(&format!("Flags ({total_items} {plural})"))];
-    if total == 0 {
-        lines.push(format!(
-            "  {} No {scope}-level flags",
-            "\u{2713}".green().bold()
-        ));
-    } else {
-        lines.push(format!(
-            "  {total} total: {} errors  {} warnings",
-            colorize_severity(errors, true),
-            colorize_severity(warnings, false),
-        ));
-    }
+    lines.extend(format_scope_flag_totals(scope, errors, warnings));
     lines.push(String::new());
     lines
 }
 
-// ─── Flag helpers ────────────────────────────────────────────────────────────
+// ─── Shared flag counting ─────────────────────────────────────────────────
+
+fn count_severities(flags: &[&RefactoringFlag]) -> (u32, u32) {
+    let errors = flags
+        .iter()
+        .filter(|f| f.severity == Severity::Error)
+        .count() as u32;
+    let warnings = flags
+        .iter()
+        .filter(|f| f.severity == Severity::Warning)
+        .count() as u32;
+    (errors, warnings)
+}
+
+fn count_flag_types(flags: &[&RefactoringFlag]) -> HashMap<String, u32> {
+    let mut counts = HashMap::new();
+    for flag in flags {
+        *counts
+            .entry(flag_type_display(&flag.flag_type))
+            .or_insert(0) += 1;
+    }
+    counts
+}
+
+fn format_flag_totals(errors: u32, warnings: u32, with_flags: usize, total: usize) -> Vec<String> {
+    let sum = errors + warnings;
+    if sum == 0 {
+        return vec![format!("  {} No flags", "\u{2713}".green().bold())];
+    }
+    vec![format!(
+        "  {sum} total: {} errors  {} warnings  in {with_flags} of {total} functions",
+        colorize_severity(errors, true),
+        colorize_severity(warnings, false),
+    )]
+}
+
+fn format_scope_flag_totals(scope: &str, errors: u32, warnings: u32) -> Vec<String> {
+    let sum = errors + warnings;
+    if sum == 0 {
+        return vec![format!(
+            "  {} No {scope}-level flags",
+            "\u{2713}".green().bold()
+        )];
+    }
+    vec![format!(
+        "  {sum} total: {} errors  {} warnings",
+        colorize_severity(errors, true),
+        colorize_severity(warnings, false),
+    )]
+}
+
+// ─── Flag display helpers ────────────────────────────────────────────────────
 
 fn render_top_flag_types(counts: &HashMap<String, u32>) -> Vec<String> {
     let mut sorted: Vec<(&String, &u32)> = counts.iter().collect();
@@ -626,17 +643,29 @@ fn colorize_severity(n: u32, is_error: bool) -> String {
 }
 
 fn flag_type_display(ft: &FlagType) -> String {
+    flag_type_metric_name(ft).unwrap_or_else(|| flag_type_structural_name(ft))
+}
+
+fn flag_type_metric_name(ft: &FlagType) -> Option<String> {
     match ft {
-        FlagType::HighCognitiveFlow => "Cognitive flow complexity".to_string(),
-        FlagType::HighDataComplexity => "Data complexity".to_string(),
-        FlagType::HighIdentifierChurn => "Identifier reference churn".to_string(),
-        FlagType::TooManyParams => "Too many parameters".to_string(),
-        FlagType::TooLong => "Function too long".to_string(),
-        FlagType::DeepNesting => "Deep nesting".to_string(),
-        FlagType::HighCoupling => "High coupling".to_string(),
-        FlagType::ExcessiveReturns => "Excessive returns".to_string(),
-        FlagType::HighHalsteadEffort => "High Halstead effort".to_string(),
+        FlagType::HighCognitiveFlow => Some("Cognitive flow complexity".to_string()),
+        FlagType::HighDataComplexity => Some("Data complexity".to_string()),
+        FlagType::HighIdentifierChurn => Some("Identifier reference churn".to_string()),
+        FlagType::HighCoupling => Some("High coupling".to_string()),
+        FlagType::HighHalsteadEffort => Some("High Halstead effort".to_string()),
+        _ => None,
     }
+}
+
+fn flag_type_structural_name(ft: &FlagType) -> String {
+    match ft {
+        FlagType::TooManyParams => "Too many parameters",
+        FlagType::TooLong => "Function too long",
+        FlagType::DeepNesting => "Deep nesting",
+        FlagType::ExcessiveReturns => "Excessive returns",
+        _ => "Unknown flag",
+    }
+    .to_string()
 }
 
 // ─── Formatting utilities ────────────────────────────────────────────────────
