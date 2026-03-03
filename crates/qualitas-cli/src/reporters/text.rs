@@ -292,22 +292,43 @@ fn render_project_header(report: &ProjectQualityReport) -> Vec<String> {
 
 // ─── Extracted helper: render worst functions section ─────────────────────────
 
-fn render_worst_functions_section(report: &ProjectQualityReport) -> Vec<String> {
+fn render_worst_functions_section(
+    report: &ProjectQualityReport,
+    flagged_only: bool,
+) -> Vec<String> {
     let mut lines = Vec::new();
 
-    if !report.worst_functions.is_empty() {
-        lines.push(String::new());
-        lines.push("  Worst functions:".bold().to_string());
-        for func in report.worst_functions.iter().take(5) {
-            lines.push(format!(
-                "    {} {}  {}()  score: {}  {}",
-                "\u{2717}".red(),
-                func.location.file,
-                func.name.bold(),
-                func.score as u32,
-                grade_color(func.grade, &func.grade.to_string()),
-            ));
-        }
+    let funcs: Vec<&FunctionQualityReport> = if flagged_only {
+        report
+            .worst_functions
+            .iter()
+            .filter(|f| f.needs_refactoring)
+            .collect()
+    } else {
+        report.worst_functions.iter().take(5).collect()
+    };
+
+    if funcs.is_empty() {
+        return lines;
+    }
+
+    lines.push(String::new());
+    let header = if flagged_only {
+        "  Functions needing refactoring:"
+    } else {
+        "  Worst functions:"
+    };
+    lines.push(header.bold().to_string());
+
+    for func in &funcs {
+        lines.push(format!(
+            "    {} {}  {}()  score: {}  {}",
+            "\u{2717}".red(),
+            func.location.file,
+            func.name.bold(),
+            func.score as u32,
+            grade_color(func.grade, &func.grade.to_string()),
+        ));
     }
 
     lines
@@ -323,7 +344,7 @@ pub fn render_project_report(report: &ProjectQualityReport, opts: &TextReporterO
     }
 
     if opts.scope == "function" {
-        lines.extend(render_worst_functions_section(report));
+        lines.extend(render_worst_functions_section(report, opts.flagged_only));
     }
 
     if opts.verbose || !opts.flagged_only {

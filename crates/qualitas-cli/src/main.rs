@@ -341,17 +341,13 @@ fn build_grade_distribution(functions: &[&FunctionQualityReport]) -> GradeDistri
 
 // ─── Extracted helper: find worst-scoring functions ───────────────────────────
 
-fn find_worst_functions(
-    functions: &[&FunctionQualityReport],
-    limit: usize,
-) -> Vec<FunctionQualityReport> {
+fn find_worst_functions(functions: &[&FunctionQualityReport]) -> Vec<FunctionQualityReport> {
     let mut worst: Vec<FunctionQualityReport> = functions.iter().map(|f| (*f).clone()).collect();
     worst.sort_by(|a, b| {
         a.score
             .partial_cmp(&b.score)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    worst.truncate(limit);
     worst
 }
 
@@ -378,7 +374,7 @@ fn build_project_report(
 
     let dist = build_grade_distribution(&all_functions);
 
-    let worst = find_worst_functions(&all_functions, 10);
+    let worst = find_worst_functions(&all_functions);
 
     let grade = grade_from_score(weighted_score, None);
 

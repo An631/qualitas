@@ -17,13 +17,14 @@ Cognitive Complexity (CC-Sonar, the metric behind SonarQube) is the leading code
 | CC-Sonar alone | r = 0.513 |
 
 CC-Sonar only measures control flow structure. It misses:
+
 - **Data complexity** — how many variables, operators, and distinct symbols the reader must track simultaneously (Halstead)
 - **Identifier churn** — how often a reader must revisit a variable across a wide scope (eye-tracking research)
 - **Saturation effect** — once code is complex enough, doubling raw CC-Sonar doesn't double perceived difficulty
 
 `qualitas-ts` addresses all three gaps through a five-pillar composite score with an exponential saturation model.
 
-> PMC paper: *"Measuring cognitive complexity in software development"* — https://pmc.ncbi.nlm.nih.gov/articles/PMC9942489/
+> PMC paper: *"Measuring cognitive complexity in software development"* — <https://pmc.ncbi.nlm.nih.gov/articles/PMC9942489/>
 
 ---
 
@@ -101,10 +102,12 @@ An enhanced version of CC-Sonar tuned for TypeScript/JavaScript. Tracks nesting 
 Halstead-inspired metric. Addresses CC-Sonar's largest gap (r=0.901 correlation in the PMC paper vs CC-Sonar's r=0.513).
 
 **Counting:**
+
 - **Operators (η₁ distinct, N₁ total):** `+`, `-`, `*`, `/`, `===`, `!==`, `<`, `>`, `<=`, `>=`, `=`, `+=`, `-=`, `&&`, `||`, `??`, `!`, `typeof`, `instanceof`, `?.`, `??=`, etc.
 - **Operands (η₂ distinct, N₂ total):** identifiers (variables/params), string/numeric/template literals, `this`, `null`, `undefined`, boolean literals
 
 **Computed values:**
+
 ```
 Vocabulary  η = η₁ + η₂
 Length      N = N₁ + N₂
@@ -114,9 +117,11 @@ Effort      E = D × V
 ```
 
 **Normalized raw score:**
+
 ```
 DCI_raw = 0.6 × (D / 60) + 0.4 × (V / 3000)
 ```
+
 Where 60 = F-tier difficulty threshold, 3000 = F-tier volume threshold.
 
 **Why it matters:** A function with 20 distinct variable names, 15 distinct operators, and 200 total token appearances forces the reader to hold a large mental vocabulary simultaneously. CC-Sonar scores this identically to a trivial function with the same branching structure.
@@ -128,6 +133,7 @@ Where 60 = F-tier difficulty threshold, 3000 = F-tier volume threshold.
 Novel metric. Inspired by the eye-tracking finding (r=0.963) that revisit count — how often a developer re-reads a variable while understanding code — is the strongest predictor of cognitive load.
 
 **Algorithm:** For each declared identifier (variable, parameter, destructured binding) in function scope:
+
 ```
 cost = referenceCount × log₂(scopeSpanLines + 1)
      where scopeSpanLines = lastReferenceLine − definitionLine
@@ -144,15 +150,18 @@ cost = referenceCount × log₂(scopeSpanLines + 1)
 Measures how many external dependencies and distinct APIs a function/file touches.
 
 **At file level:**
+
 - `importCount` — total import statements
 - `distinctSources` — unique module specifiers
 - `externalRatio` — imports from `node_modules` / total imports
 
 **At function level:**
+
 - `distinctApiCalls` — distinct imported-module methods called (e.g., `fs.readFile`, `axios.get` = 2)
 - `closureCaptures` — identifiers from outer scope referenced inside
 
 **Normalized raw score:**
+
 ```
 DC_raw = 0.4 × (importCount / 20) + 0.3 × externalRatio + 0.3 × (distinctApiCalls / 15)
 ```
@@ -169,6 +178,7 @@ Count-based metrics that catch simple but impactful structural issues.
 - `returnCount` — number of `return` statements
 
 **Normalized raw score:**
+
 ```
 SM_raw = 0.4×(loc/100) + 0.3×(params/6) + 0.2×(nesting/6) + 0.1×(returns/5)
 ```
@@ -436,7 +446,7 @@ interface FunctionQualityReport {
 Research-backed weights derived from the PMC correlation coefficients:
 
 | Pillar | Weight | Rationale |
-|--------|--------|-----------|
+| -------- | -------- | ----------- |
 | CFC | 0.30 | Strong predictor, well-validated |
 | DCI | 0.25 | Highest correlation (r=0.901) |
 | IRC | 0.20 | Strongest single predictor (r=0.963) — lower weight because it's novel |
@@ -459,7 +469,7 @@ Same weights as `default` but tighter grade bands: A≥90, B≥75, C≥60, D≥4
 
 ## Sample Text Output
 
-```
+```text
 qualitas-ts: src/processPayment.ts
 ████░░░░░░  score: 42.0  grade: D
 
@@ -484,7 +494,7 @@ File: D — 42.0  — 1 of 3 function(s) need refactoring
 
 ## Architecture
 
-```
+```text
 qualitas-ts/
 ├── src/                    Rust core (compiled to native .node binary)
 │   ├── lib.rs              napi-rs exports: analyze_source(), quick_score()
@@ -595,6 +605,7 @@ npm test            # 6 JS integration tests
 ### Rust unit tests (`cargo test`)
 
 Located inline in each module (`#[cfg(test)]`). Cover:
+
 - CFC increments for each control flow node type
 - Halstead operator/operand counting
 - IRC cost formula correctness
