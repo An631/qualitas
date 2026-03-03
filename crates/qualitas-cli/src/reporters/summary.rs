@@ -141,7 +141,7 @@ fn render_header(report: &ProjectQualityReport) -> Vec<String> {
 
 fn render_file_section(report: &ProjectQualityReport) -> Vec<String> {
     let items = build_file_items(report);
-    let flags: Vec<&RefactoringFlag> = report.files.iter().flat_map(|f| &f.flags).collect();
+    let all_fn_flags = collect_all_fn_flags_in_files(report);
     let mut lines = vec![scope_banner("FILE ANALYSIS")];
 
     lines.extend(render_grade_histogram(
@@ -149,8 +149,23 @@ fn render_file_section(report: &ProjectQualityReport) -> Vec<String> {
         &items,
     ));
     lines.extend(render_worst_items("Files", &items));
-    lines.extend(render_flag_summary("file", &flags, items.len()));
+    lines.extend(render_contained_flags("file", &all_fn_flags, items.len()));
     lines
+}
+
+fn collect_all_fn_flags_in_files(report: &ProjectQualityReport) -> Vec<&RefactoringFlag> {
+    let mut flags = Vec::new();
+    for file in &report.files {
+        for f in &file.functions {
+            flags.extend(&f.flags);
+        }
+        for cls in &file.classes {
+            for m in &cls.methods {
+                flags.extend(&m.flags);
+            }
+        }
+    }
+    flags
 }
 
 fn build_file_items(report: &ProjectQualityReport) -> Vec<ScopeItem> {
@@ -184,7 +199,7 @@ fn count_file_flags(file: &FileQualityReport) -> usize {
 
 fn render_class_section(classes: &[&ClassQualityReport]) -> Vec<String> {
     let items = build_class_items(classes);
-    let flags: Vec<&RefactoringFlag> = classes.iter().flat_map(|c| &c.flags).collect();
+    let all_method_flags = collect_all_method_flags(classes);
     let mut lines = vec![scope_banner("CLASS ANALYSIS")];
 
     lines.extend(render_grade_histogram(
@@ -192,8 +207,19 @@ fn render_class_section(classes: &[&ClassQualityReport]) -> Vec<String> {
         &items,
     ));
     lines.extend(render_worst_items("Classes", &items));
-    lines.extend(render_flag_summary("class", &flags, items.len()));
+    lines.extend(render_contained_flags(
+        "class",
+        &all_method_flags,
+        items.len(),
+    ));
     lines
+}
+
+fn collect_all_method_flags<'a>(classes: &[&'a ClassQualityReport]) -> Vec<&'a RefactoringFlag> {
+    classes
+        .iter()
+        .flat_map(|c| c.methods.iter().flat_map(|m| &m.flags))
+        .collect()
 }
 
 fn build_class_items(classes: &[&ClassQualityReport]) -> Vec<ScopeItem> {
@@ -260,7 +286,7 @@ fn render_function_flags(fns: &[&FunctionQualityReport]) -> Vec<String> {
         fns_with_flags,
         fns.len(),
     ));
-    lines.extend(render_top_flag_types(&type_counts));
+    lines.extend(render_flag_type_breakdown(&type_counts));
     lines.push(String::new());
     lines
 }
@@ -269,90 +295,154 @@ fn render_function_flags(fns: &[&FunctionQualityReport]) -> Vec<String> {
 
 fn render_pillar_health(fns: &[&FunctionQualityReport]) -> Vec<String> {
     if fns.is_empty() {
-        return vec![
-            section_header("Pillar Health (per function)"),
-            String::new(),
-        ];
+        return vec![section_header("Pillar Health"), String::new()];
     }
 
-    let mut lines = vec![
-        section_header("Pillar Health (per function)"),
-        format!(
-            "  {:<26} {:>6}  {:>8}  {}",
-            "",
-            "avg".dimmed(),
-            "median".dimmed(),
-            "pass < warn < error".dimmed(),
-        ),
-    ];
+    let bar_legend = format!(
+        "  {:<24} {}  {}  {}",
+        "",
+        "pass".green(),
+        "warn".yellow(),
+        "error".red(),
+    );
 
-    lines.push(pillar_row(
+    let mut lines = vec![section_header("Pillar Health (per function)"), bar_legend];
+
+    lines.extend(pillar_zone_row(
         "Cognitive Flow",
         fns,
         |f| f64::from(f.metrics.cognitive_flow.score),
         0,
-        "0\u{2013}12 < 13\u{2013}19 < 19+",
+        13.0,
+        19.0,
+        30.0,
     ));
-    lines.push(pillar_row(
+    lines.extend(pillar_zone_row(
         "Data Complexity",
         fns,
         |f| f.metrics.data_complexity.difficulty,
         1,
-        "0\u{2013}25 < 26\u{2013}41 < 41+",
+        26.0,
+        41.0,
+        60.0,
     ));
-    lines.push(pillar_row(
-        "Identifier References",
+    lines.extend(pillar_zone_row(
+        "Identifier Refs",
         fns,
         |f| f.metrics.identifier_reference.total_irc,
         1,
-        "0\u{2013}40 < 41\u{2013}71 < 71+",
+        41.0,
+        71.0,
+        100.0,
     ));
-    lines.push(pillar_row(
-        "Dependency Coupling",
+    lines.extend(pillar_zone_row(
+        "Dep. Coupling",
         fns,
         |f| f64::from(f.metrics.dependency_coupling.import_count),
         0,
-        "0\u{2013}9 < 10\u{2013}15 < 15+",
+        10.0,
+        15.0,
+        20.0,
     ));
-    lines.push(pillar_row(
+    lines.extend(pillar_zone_row(
         "Structural LOC",
         fns,
         |f| f64::from(f.metrics.structural.loc),
         0,
-        "0\u{2013}40 < 41\u{2013}61 < 61+",
+        41.0,
+        61.0,
+        80.0,
     ));
-    lines.push(pillar_row(
+    lines.extend(pillar_zone_row(
         "Structural Params",
         fns,
         |f| f64::from(f.metrics.structural.parameter_count),
         0,
-        "0\u{2013}3 < 4\u{2013}5 < 5+",
+        4.0,
+        5.0,
+        8.0,
     ));
 
     lines.push(String::new());
     lines
 }
 
-fn pillar_row(
+/// Render a pillar as a colored zone bar with avg/median markers.
+///
+/// The bar is 30 chars wide. Zone boundaries are proportional to `max_display`.
+/// `warn_at` and `error_at` define the zone boundaries.
+fn pillar_zone_row(
     name: &str,
     fns: &[&FunctionQualityReport],
     extract: impl Fn(&FunctionQualityReport) -> f64,
     decimals: usize,
-    thresholds: &str,
-) -> String {
+    warn_at: f64,
+    error_at: f64,
+    max_display: f64,
+) -> Vec<String> {
     let vals: Vec<f64> = fns.iter().map(|f| extract(f)).collect();
-    let fmt = |v: f64| match decimals {
+    let avg_val = avg(&vals);
+    let med_val = median(&vals);
+    let bar = build_zone_bar(avg_val, med_val, warn_at, error_at, max_display);
+    let fmt_val = |v: f64| match decimals {
         0 => format!("{v:.0}"),
         1 => format!("{v:.1}"),
         _ => format!("{v:.2}"),
     };
-    format!(
-        "  {:<26} {:>6}  {:>8}  {}",
-        name,
-        fmt(avg(&vals)).bold(),
-        fmt(median(&vals)).bold(),
-        thresholds.dimmed(),
-    )
+    let avg_label = zone_colorize(&format!("{}", fmt_val(avg_val)), avg_val, warn_at, error_at);
+    let med_label = zone_colorize(&fmt_val(med_val).clone(), med_val, warn_at, error_at);
+    let ranges = format!(
+        "{} {} {}",
+        format!("0\u{2013}{}", fmt_val(warn_at - 1.0)).green(),
+        format!("> {}\u{2013}{}", fmt_val(warn_at), fmt_val(error_at)).yellow(),
+        format!("> {}+", fmt_val(error_at)).red(),
+    );
+    vec![format!(
+        "  {:<24} {}  \u{25b2} avg:{avg_label} \u{25cf} med:{med_label} | Ranges: [{ranges}]",
+        name, bar
+    )]
+}
+
+fn zone_colorize(text: &str, value: f64, warn: f64, error: f64) -> String {
+    if value >= error {
+        text.red().bold().to_string()
+    } else if value >= warn {
+        text.yellow().bold().to_string()
+    } else {
+        text.green().bold().to_string()
+    }
+}
+
+fn build_zone_bar(avg_val: f64, med_val: f64, warn: f64, error: f64, max: f64) -> String {
+    let width = 30usize;
+    let warn_pos = ((warn / max) * width as f64).round() as usize;
+    let error_pos = ((error / max) * width as f64).round() as usize;
+    let avg_pos = ((avg_val / max).min(1.0) * width as f64).round() as usize;
+    let med_pos = ((med_val / max).min(1.0) * width as f64).round() as usize;
+
+    let mut chars: Vec<String> = Vec::with_capacity(width);
+    for i in 0..width {
+        let base = if i < warn_pos {
+            "\u{2500}".green().to_string()
+        } else if i < error_pos {
+            "\u{2500}".yellow().to_string()
+        } else {
+            "\u{2500}".red().to_string()
+        };
+        chars.push(base);
+    }
+
+    // Place markers (median first so avg overwrites if same position)
+    place_marker(&mut chars, med_pos, width, "\u{25cf}");
+    place_marker(&mut chars, avg_pos, width, "\u{25b2}");
+
+    chars.join("")
+}
+
+fn place_marker(chars: &mut [String], pos: usize, width: usize, symbol: &str) {
+    let idx = pos.min(width - 1);
+    // Color the marker based on which zone it falls in
+    chars[idx] = symbol.bold().to_string();
 }
 
 // ─── Score Deductions (function-only) ────────────────────────────────────────
@@ -556,15 +646,35 @@ fn format_scope_item_line(item: &ScopeItem) -> String {
 
 // ─── Generic: Flag Summary ───────────────────────────────────────────────────
 
-fn render_flag_summary(scope: &str, flags: &[&RefactoringFlag], total_items: usize) -> Vec<String> {
+fn render_contained_flags(
+    scope: &str,
+    flags: &[&RefactoringFlag],
+    item_count: usize,
+) -> Vec<String> {
     let (errors, warnings) = count_severities(flags);
+    let type_counts = count_flag_types(flags);
+    let total = errors + warnings;
     let plural = if scope.ends_with('s') {
         format!("{scope}es")
     } else {
         format!("{scope}s")
     };
-    let mut lines = vec![section_header(&format!("Flags ({total_items} {plural})"))];
-    lines.extend(format_scope_flag_totals(scope, errors, warnings));
+
+    let mut lines = vec![section_header(&format!(
+        "Flags (across {item_count} {plural})"
+    ))];
+
+    if total == 0 {
+        lines.push(format!("  {} No flags", "\u{2713}".green().bold()));
+    } else {
+        lines.push(format!(
+            "  {total} total: {} errors  {} warnings",
+            colorize_severity(errors, true),
+            colorize_severity(warnings, false),
+        ));
+        lines.extend(render_flag_type_breakdown(&type_counts));
+    }
+
     lines.push(String::new());
     lines
 }
@@ -605,29 +715,13 @@ fn format_flag_totals(errors: u32, warnings: u32, with_flags: usize, total: usiz
     )]
 }
 
-fn format_scope_flag_totals(scope: &str, errors: u32, warnings: u32) -> Vec<String> {
-    let sum = errors + warnings;
-    if sum == 0 {
-        return vec![format!(
-            "  {} No {scope}-level flags",
-            "\u{2713}".green().bold()
-        )];
-    }
-    vec![format!(
-        "  {sum} total: {} errors  {} warnings",
-        colorize_severity(errors, true),
-        colorize_severity(warnings, false),
-    )]
-}
-
 // ─── Flag display helpers ────────────────────────────────────────────────────
 
-fn render_top_flag_types(counts: &HashMap<String, u32>) -> Vec<String> {
+fn render_flag_type_breakdown(counts: &HashMap<String, u32>) -> Vec<String> {
     let mut sorted: Vec<(&String, &u32)> = counts.iter().collect();
     sorted.sort_by(|a, b| b.1.cmp(a.1));
     sorted
         .iter()
-        .take(3)
         .map(|(name, count)| format!("    \u{2022} {name} ({count}\u{00d7})"))
         .collect()
 }
