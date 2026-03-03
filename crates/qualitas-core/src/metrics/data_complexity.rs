@@ -194,6 +194,27 @@ fn compute_halstead_score(difficulty: f64, volume: f64) -> f64 {
         + crate::constants::DCI_VOLUME_WEIGHT * (volume / crate::constants::NORM_DCI_VOLUME)
 }
 
+/// Accumulate a single event into the Halstead count sets.
+fn accumulate_halstead_event(
+    event: &QualitasEvent,
+    distinct_operators: &mut HashSet<String>,
+    distinct_operands: &mut HashSet<String>,
+    total_operators: &mut u32,
+    total_operands: &mut u32,
+) {
+    match event {
+        QualitasEvent::Operator(op) => {
+            distinct_operators.insert(op.name.clone());
+            *total_operators += 1;
+        }
+        QualitasEvent::Operand(operand) => {
+            distinct_operands.insert(operand.name.clone());
+            *total_operands += 1;
+        }
+        _ => {}
+    }
+}
+
 /// Collect Halstead operator/operand counts from IR events.
 fn collect_halstead_counts(events: &[QualitasEvent]) -> HalsteadCounts {
     let mut distinct_operators: HashSet<String> = HashSet::new();
@@ -202,17 +223,13 @@ fn collect_halstead_counts(events: &[QualitasEvent]) -> HalsteadCounts {
     let mut total_operands: u32 = 0;
 
     for event in events {
-        match event {
-            QualitasEvent::Operator(op) => {
-                distinct_operators.insert(op.name.clone());
-                total_operators += 1;
-            }
-            QualitasEvent::Operand(operand) => {
-                distinct_operands.insert(operand.name.clone());
-                total_operands += 1;
-            }
-            _ => {}
-        }
+        accumulate_halstead_event(
+            event,
+            &mut distinct_operators,
+            &mut distinct_operands,
+            &mut total_operators,
+            &mut total_operands,
+        );
     }
 
     HalsteadCounts {

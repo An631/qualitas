@@ -126,6 +126,20 @@ pub enum Grade {
     F,
 }
 
+impl Grade {
+    /// Returns a 0-based index for array-based grade distribution tallying.
+    /// A=0, B=1, C=2, D=3, F=4
+    pub fn index(self) -> usize {
+        match self {
+            Grade::A => 0,
+            Grade::B => 1,
+            Grade::C => 2,
+            Grade::D => 3,
+            Grade::F => 4,
+        }
+    }
+}
+
 impl std::fmt::Display for Grade {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

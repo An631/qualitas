@@ -11,7 +11,7 @@ use qualitas_core::languages::list_adapters;
 use qualitas_core::scorer::composite::aggregate_scores;
 use qualitas_core::scorer::thresholds::grade_from_score;
 use qualitas_core::types::{
-    AnalysisOptions, FileQualityReport, FunctionQualityReport, Grade, GradeDistribution,
+    AnalysisOptions, FileQualityReport, FunctionQualityReport, GradeDistribution,
     ProjectQualityReport, ProjectSummary,
 };
 
@@ -96,6 +96,18 @@ fn build_cli_options(cli: &Cli) -> (AnalysisOptions, TextReporterOptions) {
     (options, reporter_opts)
 }
 
+// ─── Extracted helper: handle analysis result and exit ─────────────────────────
+
+fn handle_result(result: Result<bool, String>) -> ! {
+    match result {
+        Ok(below_threshold) => process::exit(i32::from(below_threshold)),
+        Err(e) => {
+            eprintln!("qualitas error: {e}");
+            process::exit(2);
+        }
+    }
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 fn main() {
@@ -116,15 +128,7 @@ fn main() {
         run_file(&cli, &options, &reporter_opts)
     };
 
-    match result {
-        Ok(below_threshold) => {
-            process::exit(i32::from(below_threshold));
-        }
-        Err(e) => {
-            eprintln!("qualitas error: {e}");
-            process::exit(2);
-        }
-    }
+    handle_result(result);
 }
 
 // ─── Single-file analysis ─────────────────────────────────────────────────────
@@ -173,6 +177,20 @@ fn check_project_threshold(report: &ProjectQualityReport, threshold: f64) -> boo
             .any(|f| f.functions.iter().any(|func| func.score < threshold))
 }
 
+// ─── Extracted helper: format project output ──────────────────────────────────
+
+fn format_project_output(
+    report: &ProjectQualityReport,
+    format: &str,
+    reporter_opts: &TextReporterOptions,
+) -> String {
+    match format {
+        "json" => render_project_json(report),
+        "markdown" => render_markdown_project_report(report),
+        _ => render_project_report(report, reporter_opts),
+    }
+}
+
 // ─── Project analysis ─────────────────────────────────────────────────────────
 
 fn run_project(
@@ -193,13 +211,10 @@ fn run_project(
 
     let below_threshold = check_project_threshold(&report, cli.threshold);
 
-    let output = match cli.format.as_str() {
-        "json" => render_project_json(&report),
-        "markdown" => render_markdown_project_report(&report),
-        _ => render_project_report(&report, reporter_opts),
-    };
-
-    println!("{output}");
+    println!(
+        "{}",
+        format_project_output(&report, &cli.format, reporter_opts)
+    );
     Ok(below_threshold)
 }
 
@@ -258,12 +273,11 @@ fn is_supported_file(
     true
 }
 
-// ─── File collection (walkdir) ────────────────────────────────────────────────
+// ─── Extracted helper: load adapter extensions and test patterns ──────────────
 
-fn collect_files(dir: &str, include_tests: bool) -> Result<Vec<String>, String> {
-    // Build set of supported extensions and test patterns from registered adapters
+fn load_adapter_info() -> (Vec<&'static str>, Vec<&'static str>) {
     let adapters = list_adapters();
-    let supported_extensions: Vec<&str> = adapters
+    let extensions: Vec<&str> = adapters
         .iter()
         .flat_map(|a| a.extensions().iter().copied())
         .collect();
@@ -271,32 +285,45 @@ fn collect_files(dir: &str, include_tests: bool) -> Result<Vec<String>, String> 
         .iter()
         .flat_map(|a| a.test_patterns().iter().copied())
         .collect();
+    (extensions, test_patterns)
+}
 
-    let mut files = Vec::new();
+// ─── File collection (walkdir) ────────────────────────────────────────────────
 
-    for entry in WalkDir::new(dir).into_iter().filter_entry(|e| {
-        let name = e.file_name().to_string_lossy();
-        // Skip hidden dirs and excluded dirs
-        if e.file_type().is_dir() {
-            return !name.starts_with('.') && !DEFAULT_EXCLUDE.contains(&name.as_ref());
-        }
-        true
-    }) {
-        let entry = entry.map_err(|e| format!("walkdir error: {e}"))?;
-        if !entry.file_type().is_file() {
-            continue;
-        }
-
-        let path = entry.path();
-
-        if !is_supported_file(path, &supported_extensions, &test_patterns, include_tests) {
-            continue;
-        }
-
-        files.push(path.to_string_lossy().to_string());
+/// Returns true if a directory entry should be descended into (not hidden, not excluded).
+fn should_enter_directory(entry: &walkdir::DirEntry) -> bool {
+    let name = entry.file_name().to_string_lossy();
+    if entry.file_type().is_dir() {
+        return !name.starts_with('.') && !DEFAULT_EXCLUDE.contains(&name.as_ref());
     }
+    true
+}
 
+fn collect_files(dir: &str, include_tests: bool) -> Result<Vec<String>, String> {
+    let (extensions, patterns) = load_adapter_info();
+    let mut files = collect_matching_files(dir, &extensions, &patterns, include_tests)?;
     files.sort();
+    Ok(files)
+}
+
+fn collect_matching_files(
+    dir: &str,
+    extensions: &[&str],
+    patterns: &[&str],
+    include_tests: bool,
+) -> Result<Vec<String>, String> {
+    let mut files = Vec::new();
+    for entry in WalkDir::new(dir)
+        .into_iter()
+        .filter_entry(should_enter_directory)
+    {
+        let entry = entry.map_err(|e| format!("walkdir error: {e}"))?;
+        if entry.file_type().is_file()
+            && is_supported_file(entry.path(), extensions, patterns, include_tests)
+        {
+            files.push(entry.path().to_string_lossy().to_string());
+        }
+    }
     Ok(files)
 }
 
@@ -320,23 +347,17 @@ fn collect_all_functions(reports: &[FileQualityReport]) -> Vec<&FunctionQualityR
 // ─── Extracted helper: build grade distribution ───────────────────────────────
 
 fn build_grade_distribution(functions: &[&FunctionQualityReport]) -> GradeDistribution {
-    let mut dist = GradeDistribution {
-        a: 0,
-        b: 0,
-        c: 0,
-        d: 0,
-        f: 0,
-    };
+    let mut counts = [0u32; 5];
     for func in functions {
-        match func.grade {
-            Grade::A => dist.a += 1,
-            Grade::B => dist.b += 1,
-            Grade::C => dist.c += 1,
-            Grade::D => dist.d += 1,
-            Grade::F => dist.f += 1,
-        }
+        counts[func.grade.index()] += 1;
     }
-    dist
+    GradeDistribution {
+        a: counts[0],
+        b: counts[1],
+        c: counts[2],
+        d: counts[3],
+        f: counts[4],
+    }
 }
 
 // ─── Extracted helper: find worst-scoring functions ───────────────────────────

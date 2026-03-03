@@ -158,6 +158,19 @@ fn render_file_header(report: &FileQualityReport) -> Vec<String> {
     ]
 }
 
+// ─── Extracted helper: render flags for a class ───────────────────────────────
+
+fn render_class_flags(flags: &[RefactoringFlag]) -> Vec<String> {
+    let mut lines = Vec::new();
+    if !flags.is_empty() {
+        lines.push(format!("    {}", "Flags:".dimmed()));
+        for flag in flags {
+            lines.push(render_flag(flag, "    "));
+        }
+    }
+    lines
+}
+
 // ─── Extracted helper: render class scope ─────────────────────────────────────
 
 fn render_class_scope(report: &FileQualityReport, opts: &TextReporterOptions) -> Vec<String> {
@@ -172,12 +185,7 @@ fn render_class_scope(report: &FileQualityReport, opts: &TextReporterOptions) ->
             grade_color(cls.grade, &cls.grade.to_string()),
             cls.score,
         ));
-        if !cls.flags.is_empty() {
-            lines.push(format!("    {}", "Flags:".dimmed()));
-            for flag in &cls.flags {
-                lines.push(render_flag(flag, "    "));
-            }
-        }
+        lines.extend(render_class_flags(&cls.flags));
     }
     lines
 }
@@ -334,6 +342,22 @@ fn render_worst_functions_section(
     lines
 }
 
+// ─── Extracted helper: render file details section ────────────────────────────
+
+fn render_file_details_section(
+    report: &ProjectQualityReport,
+    opts: &TextReporterOptions,
+) -> Vec<String> {
+    let mut lines = vec![String::new()];
+    for file in &report.files {
+        if opts.flagged_only && !file.needs_refactoring {
+            continue;
+        }
+        lines.push(render_file_report(file, opts));
+    }
+    lines
+}
+
 // ─── Project report ───────────────────────────────────────────────────────────
 
 pub fn render_project_report(report: &ProjectQualityReport, opts: &TextReporterOptions) -> String {
@@ -348,13 +372,7 @@ pub fn render_project_report(report: &ProjectQualityReport, opts: &TextReporterO
     }
 
     if opts.verbose || !opts.flagged_only {
-        lines.push(String::new());
-        for file in &report.files {
-            if opts.flagged_only && !file.needs_refactoring {
-                continue;
-            }
-            lines.push(render_file_report(file, opts));
-        }
+        lines.extend(render_file_details_section(report, opts));
     }
 
     lines.join("\n")

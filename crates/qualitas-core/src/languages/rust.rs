@@ -85,30 +85,28 @@ fn span_to_byte_end(source: &str, span: proc_macro2::Span) -> u32 {
 
 // ─── Use-tree name extraction ────────────────────────────────────────────────
 
+/// Extract the name from a leaf use-tree node (Name, Rename, or Glob).
+fn use_tree_leaf_name(tree: &UseTree, prefix: &str) -> Option<String> {
+    match tree {
+        UseTree::Name(n) => Some(n.ident.to_string()),
+        UseTree::Rename(r) => Some(r.rename.to_string()),
+        UseTree::Glob(_) => Some(format!("{prefix}::*")),
+        _ => None,
+    }
+}
+
 fn collect_use_names(tree: &UseTree, prefix: &str, names: &mut Vec<String>) {
+    if let Some(name) = use_tree_leaf_name(tree, prefix) {
+        names.push(name);
+        return;
+    }
     match tree {
         UseTree::Path(p) => {
-            let new_prefix = if prefix.is_empty() {
-                p.ident.to_string()
-            } else {
-                format!("{prefix}::{}", p.ident)
-            };
+            let new_prefix = use_path_prefix(prefix, &p.ident);
             collect_use_names(&p.tree, &new_prefix, names);
         }
-        UseTree::Name(n) => {
-            names.push(n.ident.to_string());
-        }
-        UseTree::Rename(r) => {
-            names.push(r.rename.to_string());
-        }
-        UseTree::Glob(_) => {
-            names.push(format!("{prefix}::*"));
-        }
-        UseTree::Group(g) => {
-            for item in &g.items {
-                collect_use_names(item, prefix, names);
-            }
-        }
+        UseTree::Group(g) => collect_use_group(g, prefix, names),
+        _ => {}
     }
 }
 
@@ -122,6 +120,20 @@ fn use_tree_source(tree: &UseTree) -> String {
     }
 }
 
+fn use_path_prefix(prefix: &str, ident: &syn::Ident) -> String {
+    if prefix.is_empty() {
+        ident.to_string()
+    } else {
+        format!("{prefix}::{ident}")
+    }
+}
+
+fn collect_use_group(g: &syn::UseGroup, prefix: &str, names: &mut Vec<String>) {
+    for item in &g.items {
+        collect_use_names(item, prefix, names);
+    }
+}
+
 // ─── Pure mapping: BinOp → operator name ─────────────────────────────────────
 
 fn binary_op_name(op: &BinOp) -> &'static str {
@@ -131,14 +143,21 @@ fn binary_op_name(op: &BinOp) -> &'static str {
         .unwrap_or("?op")
 }
 
-/// Arithmetic and logic binary operators.
-fn binary_op_name_simple(op: &BinOp) -> Option<&'static str> {
+/// Arithmetic binary operators.
+fn binary_op_name_arithmetic(op: &BinOp) -> Option<&'static str> {
     match op {
         BinOp::Add(_) => Some("+"),
         BinOp::Sub(_) => Some("-"),
         BinOp::Mul(_) => Some("*"),
         BinOp::Div(_) => Some("/"),
         BinOp::Rem(_) => Some("%"),
+        _ => None,
+    }
+}
+
+/// Logic and bitwise binary operators.
+fn binary_op_name_logic_and_bitwise(op: &BinOp) -> Option<&'static str> {
+    match op {
         BinOp::And(_) => Some("&&"),
         BinOp::Or(_) => Some("||"),
         BinOp::BitXor(_) => Some("^"),
@@ -148,6 +167,11 @@ fn binary_op_name_simple(op: &BinOp) -> Option<&'static str> {
         BinOp::Shr(_) => Some(">>"),
         _ => None,
     }
+}
+
+/// Arithmetic and logic binary operators.
+fn binary_op_name_simple(op: &BinOp) -> Option<&'static str> {
+    binary_op_name_arithmetic(op).or_else(|| binary_op_name_logic_and_bitwise(op))
 }
 
 /// Comparison binary operators.
@@ -163,14 +187,21 @@ fn binary_op_name_comparison(op: &BinOp) -> Option<&'static str> {
     }
 }
 
-/// Compound assignment binary operators.
-fn binary_op_name_assign(op: &BinOp) -> Option<&'static str> {
+/// Arithmetic compound assignment operators.
+fn binary_op_name_arith_assign(op: &BinOp) -> Option<&'static str> {
     match op {
         BinOp::AddAssign(_) => Some("+="),
         BinOp::SubAssign(_) => Some("-="),
         BinOp::MulAssign(_) => Some("*="),
         BinOp::DivAssign(_) => Some("/="),
         BinOp::RemAssign(_) => Some("%="),
+        _ => None,
+    }
+}
+
+/// Bitwise compound assignment operators.
+fn binary_op_name_bit_assign(op: &BinOp) -> Option<&'static str> {
+    match op {
         BinOp::BitXorAssign(_) => Some("^="),
         BinOp::BitAndAssign(_) => Some("&="),
         BinOp::BitOrAssign(_) => Some("|="),
@@ -180,6 +211,11 @@ fn binary_op_name_assign(op: &BinOp) -> Option<&'static str> {
     }
 }
 
+/// Compound assignment binary operators.
+fn binary_op_name_assign(op: &BinOp) -> Option<&'static str> {
+    binary_op_name_arith_assign(op).or_else(|| binary_op_name_bit_assign(op))
+}
+
 fn unary_op_name(op: &UnOp) -> &'static str {
     match op {
         UnOp::Not(_) => "!",
@@ -187,6 +223,33 @@ fn unary_op_name(op: &UnOp) -> &'static str {
         UnOp::Deref(_) => "*",
         _ => "?unary",
     }
+}
+
+// ─── Pure mapping: Lit → operand name ─────────────────────────────────────
+
+fn literal_numeric_name(lit: &Lit) -> Option<String> {
+    match lit {
+        Lit::Int(i) => Some(i.to_string()),
+        Lit::Float(f) => Some(f.to_string()),
+        _ => None,
+    }
+}
+
+fn literal_text_name(lit: &Lit) -> Option<String> {
+    match lit {
+        Lit::Str(s) => {
+            let val = s.value();
+            Some(val[..val.len().min(32)].to_string())
+        }
+        Lit::Bool(b) => Some(if b.value { "true" } else { "false" }.to_string()),
+        Lit::Char(c) => Some(c.value().to_string()),
+        Lit::Byte(b) => Some(b.value().to_string()),
+        _ => None,
+    }
+}
+
+fn literal_to_name(lit: &Lit) -> Option<String> {
+    literal_numeric_name(lit).or_else(|| literal_text_name(lit))
 }
 
 // ─── Top-level extractor ────────────────────────────────────────────────────
@@ -346,6 +409,33 @@ impl<'ast> Visit<'ast> for RustExtractor<'_> {
     }
 }
 
+// ─── Trait for closure/async block dispatch ─────────────────────────────────
+
+trait NestedFnBody {
+    fn emit_preamble(&self, events: &mut Vec<QualitasEvent>, nesting_depth: u32);
+    fn visit_body(&self, emitter: &mut RustBodyEventEmitter);
+}
+
+impl NestedFnBody for syn::ExprClosure {
+    fn emit_preamble(&self, events: &mut Vec<QualitasEvent>, nesting_depth: u32) {
+        if nesting_depth > 0 {
+            events.push(QualitasEvent::NestedCallback);
+        }
+    }
+    fn visit_body(&self, emitter: &mut RustBodyEventEmitter) {
+        emitter.visit_expr_inner(&self.body);
+    }
+}
+
+impl NestedFnBody for syn::ExprAsync {
+    fn emit_preamble(&self, events: &mut Vec<QualitasEvent>, _nesting_depth: u32) {
+        events.push(QualitasEvent::AsyncComplexity(AsyncEvent::Spawn));
+    }
+    fn visit_body(&self, emitter: &mut RustBodyEventEmitter) {
+        emitter.visit_block_stmts(&self.block);
+    }
+}
+
 // ─── Function body event emitter ────────────────────────────────────────────
 
 struct RustBodyEventEmitter<'src> {
@@ -395,18 +485,18 @@ impl<'src> RustBodyEventEmitter<'src> {
             }
             return;
         }
-        match pat {
-            Pat::Struct(ps) => {
-                for field in &ps.fields {
-                    self.emit_pattern_bindings(&field.pat);
-                }
-            }
-            Pat::Or(po) => {
-                for case in &po.cases {
-                    self.emit_pattern_bindings(case);
-                }
-            }
-            _ => {}
+        self.emit_struct_or_or_pattern_bindings(pat);
+    }
+
+    /// Handle Struct and Or pattern bindings by iterating inner patterns.
+    fn emit_struct_or_or_pattern_bindings(&mut self, pat: &Pat) {
+        let pats: Vec<&Pat> = match pat {
+            Pat::Struct(ps) => ps.fields.iter().map(|f| f.pat.as_ref()).collect(),
+            Pat::Or(po) => po.cases.iter().collect(),
+            _ => return,
+        };
+        for p in pats {
+            self.emit_pattern_bindings(p);
         }
     }
 
@@ -479,28 +569,40 @@ impl<'src> RustBodyEventEmitter<'src> {
                 true
             }
             Expr::While(expr_while) => {
-                self.emit_control_flow_event(ControlFlowKind::While);
-                self.visit_expr_inner(&expr_while.cond);
-                self.emit_nesting_block(|s| s.visit_block_stmts(&expr_while.body));
+                self.emit_loop_with_cond(&expr_while.cond, &expr_while.body);
                 true
             }
             Expr::Loop(expr_loop) => {
-                self.emit_control_flow_event(ControlFlowKind::While);
-                self.emit_nesting_block(|s| s.visit_block_stmts(&expr_loop.body));
+                self.emit_loop_without_cond(&expr_loop.body);
                 true
             }
             Expr::Match(expr_match) => {
-                self.emit_control_flow_event(ControlFlowKind::PatternMatch);
-                self.visit_expr_inner(&expr_match.expr);
-                self.emit_nesting_block(|s| {
-                    for arm in &expr_match.arms {
-                        s.visit_match_arm(arm);
-                    }
-                });
+                self.emit_match_expr(expr_match);
                 true
             }
             _ => false,
         }
+    }
+
+    fn emit_loop_with_cond(&mut self, cond: &Expr, body: &Block) {
+        self.emit_control_flow_event(ControlFlowKind::While);
+        self.visit_expr_inner(cond);
+        self.emit_nesting_block(|s| s.visit_block_stmts(body));
+    }
+
+    fn emit_loop_without_cond(&mut self, body: &Block) {
+        self.emit_control_flow_event(ControlFlowKind::While);
+        self.emit_nesting_block(|s| s.visit_block_stmts(body));
+    }
+
+    fn emit_match_expr(&mut self, expr_match: &syn::ExprMatch) {
+        self.emit_control_flow_event(ControlFlowKind::PatternMatch);
+        self.visit_expr_inner(&expr_match.expr);
+        self.emit_nesting_block(|s| {
+            for arm in &expr_match.arms {
+                s.visit_match_arm(arm);
+            }
+        });
     }
 
     fn emit_control_flow_event(&mut self, kind: ControlFlowKind) {
@@ -549,35 +651,38 @@ impl<'src> RustBodyEventEmitter<'src> {
 
     fn emit_special_ops(&mut self, expr: &Expr) -> bool {
         match expr {
-            Expr::Assign(a) => {
-                self.emit_operator("=");
-                self.visit_expr_inner(&a.left);
-                self.visit_expr_inner(&a.right);
-                true
-            }
-            Expr::Range(r) => {
-                self.emit_operator("..");
-                if let Some(start) = &r.start {
-                    self.visit_expr_inner(start);
-                }
-                if let Some(end) = &r.end {
-                    self.visit_expr_inner(end);
-                }
-                true
-            }
-            Expr::Cast(c) => {
-                self.emit_operator("as");
-                self.visit_expr_inner(&c.expr);
-                true
-            }
+            Expr::Assign(a) => self.emit_assign(a),
+            Expr::Range(r) => self.emit_range(r),
+            Expr::Cast(c) => self.emit_cast_or_try("as", &c.expr),
             Expr::Try(t) => {
                 self.events.push(QualitasEvent::ReturnStatement);
-                self.emit_operator("?");
-                self.visit_expr_inner(&t.expr);
-                true
+                self.emit_cast_or_try("?", &t.expr);
             }
-            _ => false,
+            _ => return false,
         }
+        true
+    }
+
+    fn emit_assign(&mut self, a: &syn::ExprAssign) {
+        self.emit_operator("=");
+        self.visit_expr_inner(&a.left);
+        self.visit_expr_inner(&a.right);
+    }
+
+    fn emit_range(&mut self, r: &syn::ExprRange) {
+        self.emit_operator("..");
+        if let Some(start) = &r.start {
+            self.visit_expr_inner(start);
+        }
+        if let Some(end) = &r.end {
+            self.visit_expr_inner(end);
+        }
+    }
+
+    /// Shared helper for Cast and Try: emit an operator and recurse into an inner expression.
+    fn emit_cast_or_try(&mut self, op: &str, inner: &Expr) {
+        self.emit_operator(op);
+        self.visit_expr_inner(inner);
     }
 
     // ── Flow control: return, break, continue ────────────────────────────
@@ -592,21 +697,24 @@ impl<'src> RustBodyEventEmitter<'src> {
                 true
             }
             Expr::Break(brk) => {
-                if brk.label.is_some() {
-                    self.events.push(QualitasEvent::LabeledFlow);
-                }
-                if let Some(val) = &brk.expr {
-                    self.visit_expr_inner(val);
-                }
+                self.emit_break_or_continue(brk.label.is_some(), brk.expr.as_deref());
                 true
             }
             Expr::Continue(cont) => {
-                if cont.label.is_some() {
-                    self.events.push(QualitasEvent::LabeledFlow);
-                }
+                self.emit_break_or_continue(cont.label.is_some(), None);
                 true
             }
             _ => false,
+        }
+    }
+
+    /// Shared helper for Break and Continue: emit labeled flow and optional value.
+    fn emit_break_or_continue(&mut self, has_label: bool, value: Option<&Expr>) {
+        if has_label {
+            self.events.push(QualitasEvent::LabeledFlow);
+        }
+        if let Some(val) = value {
+            self.visit_expr_inner(val);
         }
     }
 
@@ -631,16 +739,11 @@ impl<'src> RustBodyEventEmitter<'src> {
     fn emit_async_closures(&mut self, expr: &Expr) -> bool {
         match expr {
             Expr::Closure(c) => {
-                if self.nesting_depth > 0 {
-                    self.events.push(QualitasEvent::NestedCallback);
-                }
-                self.emit_nested_fn_block(|s| s.visit_expr_inner(&c.body));
+                self.emit_closure_or_async_block(c);
                 true
             }
             Expr::Async(a) => {
-                self.events
-                    .push(QualitasEvent::AsyncComplexity(AsyncEvent::Spawn));
-                self.emit_nested_fn_block(|s| s.visit_block_stmts(&a.block));
+                self.emit_closure_or_async_block(a);
                 true
             }
             Expr::Await(aw) => {
@@ -653,6 +756,12 @@ impl<'src> RustBodyEventEmitter<'src> {
             }
             _ => false,
         }
+    }
+
+    /// Shared helper for Closure and Async blocks, both of which use `emit_nested_fn_block`.
+    fn emit_closure_or_async_block(&mut self, block: &dyn NestedFnBody) {
+        block.emit_preamble(&mut self.events, self.nesting_depth);
+        self.emit_nested_fn_block(|s| block.visit_body(s));
     }
 
     // ── Operands: identifiers, paths, literals ───────────────────────────
@@ -694,20 +803,10 @@ impl<'src> RustBodyEventEmitter<'src> {
     }
 
     fn emit_literal_operand(&mut self, expr_lit: &syn::ExprLit) {
-        let name = match &expr_lit.lit {
-            Lit::Int(i) => i.to_string(),
-            Lit::Float(f) => f.to_string(),
-            Lit::Str(s) => {
-                let val = s.value();
-                val[..val.len().min(32)].to_string()
-            }
-            Lit::Bool(b) => if b.value { "true" } else { "false" }.to_string(),
-            Lit::Char(c) => c.value().to_string(),
-            Lit::Byte(b) => b.value().to_string(),
-            _ => return,
-        };
-        self.events
-            .push(QualitasEvent::Operand(OperandEvent { name }));
+        if let Some(name) = literal_to_name(&expr_lit.lit) {
+            self.events
+                .push(QualitasEvent::Operand(OperandEvent { name }));
+        }
     }
 
     // ── Containers & transparent wrappers ────────────────────────────────

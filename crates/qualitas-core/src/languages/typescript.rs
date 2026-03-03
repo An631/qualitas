@@ -107,6 +107,44 @@ impl<'src> TsExtractor<'src> {
         }
     }
 
+    /// Process a single object property, extracting arrow/function values by name.
+    fn process_object_prop(&mut self, prop: &ObjectPropertyKind<'_>) {
+        let ObjectPropertyKind::ObjectProperty(p) = prop else {
+            return;
+        };
+        let name = property_key_name(&p.key);
+        match &p.value {
+            Expression::ArrowFunctionExpression(arrow) => {
+                self.collect_arrow(arrow, name, None);
+            }
+            Expression::FunctionExpression(f) => {
+                let fe = self.extract_function(f, &name, None);
+                self.push_fn(fe);
+            }
+            other => {
+                self.visit_expression(other);
+            }
+        }
+    }
+
+    /// Handle init expression for a variable declarator, returning true if handled.
+    fn try_extract_var_init(&mut self, init: &Expression<'_>, name: &str) -> bool {
+        match init {
+            Expression::FunctionExpression(f) => {
+                let inferred = Some(format!("const {name} = function"));
+                let fe = self.extract_function(f, name, inferred);
+                self.push_fn(fe);
+                true
+            }
+            Expression::ArrowFunctionExpression(arrow) => {
+                let inferred = Some(format!("const {name} = "));
+                self.collect_arrow(arrow, name.to_string(), inferred);
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Analyze a `Function` node (declaration or expression) and produce a
     /// `FunctionExtraction` with its event stream.
     fn extract_function(
@@ -240,19 +278,8 @@ impl<'a> Visit<'a> for TsExtractor<'_> {
         };
 
         if let Some(init) = &decl.init {
-            match init {
-                Expression::FunctionExpression(f) => {
-                    let inferred = Some(format!("const {name} = function"));
-                    let fe = self.extract_function(f, &name, inferred);
-                    self.push_fn(fe);
-                    return;
-                }
-                Expression::ArrowFunctionExpression(arrow) => {
-                    let inferred = Some(format!("const {name} = "));
-                    self.collect_arrow(arrow, name, inferred);
-                    return;
-                }
-                _ => {}
+            if self.try_extract_var_init(init, &name) {
+                return;
             }
         }
 
@@ -265,21 +292,7 @@ impl<'a> Visit<'a> for TsExtractor<'_> {
     /// property key as its name, and we avoid recursing into collected bodies.
     fn visit_object_expression(&mut self, obj: &ObjectExpression<'a>) {
         for prop in &obj.properties {
-            if let ObjectPropertyKind::ObjectProperty(p) = prop {
-                let name = property_key_name(&p.key);
-                match &p.value {
-                    Expression::ArrowFunctionExpression(arrow) => {
-                        self.collect_arrow(arrow, name, None);
-                    }
-                    Expression::FunctionExpression(f) => {
-                        let fe = self.extract_function(f, &name, None);
-                        self.push_fn(fe);
-                    }
-                    other => {
-                        self.visit_expression(other);
-                    }
-                }
-            }
+            self.process_object_prop(prop);
         }
     }
 
@@ -378,6 +391,34 @@ impl<'src> TsBodyEventEmitter<'src> {
             source,
             imported_names,
             nesting_depth: 0,
+        }
+    }
+
+    fn detect_recursive_call(&mut self, callee: &Expression<'_>) {
+        if let Expression::Identifier(id) = callee {
+            if !self.fn_name.is_empty() && id.name.as_str() == self.fn_name {
+                self.events.push(QualitasEvent::RecursiveCall);
+            }
+        }
+    }
+
+    fn detect_member_call_patterns(&mut self, callee: &Expression<'_>) {
+        let Expression::StaticMemberExpression(member) = callee else {
+            return;
+        };
+        let prop = member.property.name.as_str();
+        if prop == "then" || prop == "catch" {
+            self.events
+                .push(QualitasEvent::AsyncComplexity(AsyncEvent::PromiseChain));
+        }
+        if let Expression::Identifier(obj) = &member.object {
+            let obj_name = obj.name.as_str();
+            if self.imported_names.contains(obj_name) {
+                self.events.push(QualitasEvent::ApiCall(ApiCallEvent {
+                    object: obj_name.to_string(),
+                    method: prop.to_string(),
+                }));
+            }
         }
     }
 }
@@ -569,33 +610,8 @@ impl<'a> Visit<'a> for TsBodyEventEmitter<'_> {
     // ── CFC: Calls (recursive, promise chains, API calls) ───────────────
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
-        // Recursive self-call detection
-        if let Expression::Identifier(id) = &it.callee {
-            if !self.fn_name.is_empty() && id.name.as_str() == self.fn_name {
-                self.events.push(QualitasEvent::RecursiveCall);
-            }
-        }
-
-        // .then() / .catch() promise chains → async complexity
-        if let Expression::StaticMemberExpression(member) = &it.callee {
-            let prop = member.property.name.as_str();
-            if prop == "then" || prop == "catch" {
-                self.events
-                    .push(QualitasEvent::AsyncComplexity(AsyncEvent::PromiseChain));
-            }
-
-            // DC: API call detection (object.method() where object is imported)
-            if let Expression::Identifier(obj) = &member.object {
-                let obj_name = obj.name.as_str();
-                if self.imported_names.contains(obj_name) {
-                    self.events.push(QualitasEvent::ApiCall(ApiCallEvent {
-                        object: obj_name.to_string(),
-                        method: prop.to_string(),
-                    }));
-                }
-            }
-        }
-
+        self.detect_recursive_call(&it.callee);
+        self.detect_member_call_patterns(&it.callee);
         walk::walk_call_expression(self, it);
     }
 

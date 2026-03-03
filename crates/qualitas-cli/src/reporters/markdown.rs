@@ -66,6 +66,23 @@ fn render_md_functions_table(report: &FileQualityReport) -> Vec<String> {
     lines
 }
 
+// ─── Extracted helper: render flags for a single function in markdown ──────────
+
+fn render_md_function_flags(func: &FunctionQualityReport) -> Vec<String> {
+    let mut lines = vec![format!("#### `{}` (score: {:.1})", func.name, func.score)];
+    for flag in &func.flags {
+        let icon = if flag.severity == qualitas_core::types::Severity::Error {
+            "\u{1f534}"
+        } else {
+            "\u{1f7e1}"
+        };
+        lines.push(format!("- {icon} **{}**", flag.message));
+        lines.push(format!("  - \u{1f4a1} {}", flag.suggestion));
+    }
+    lines.push(String::new());
+    lines
+}
+
 // ─── Extracted helper: render recommendations section ─────────────────────────
 
 fn render_md_recommendations(report: &FileQualityReport) -> Vec<String> {
@@ -81,17 +98,7 @@ fn render_md_recommendations(report: &FileQualityReport) -> Vec<String> {
         lines.push("### Refactoring Recommendations".to_string());
         lines.push(String::new());
         for func in &flagged {
-            lines.push(format!("#### `{}` (score: {:.1})", func.name, func.score));
-            for flag in &func.flags {
-                let icon = if flag.severity == qualitas_core::types::Severity::Error {
-                    "\u{1f534}"
-                } else {
-                    "\u{1f7e1}"
-                };
-                lines.push(format!("- {icon} **{}**", flag.message));
-                lines.push(format!("  - \u{1f4a1} {}", flag.suggestion));
-            }
-            lines.push(String::new());
+            lines.extend(render_md_function_flags(func));
         }
     }
 

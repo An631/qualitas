@@ -121,24 +121,32 @@ impl IrcVisitor {
                 self.declare(id.name.as_str(), id.span.start);
             }
             BindingPatternKind::ObjectPattern(obj) => {
-                for prop in &obj.properties {
-                    self.collect_pattern(&prop.value);
-                }
-                if let Some(rest) = &obj.rest {
-                    self.collect_pattern(&rest.argument);
-                }
+                self.collect_object_pattern(obj);
             }
             BindingPatternKind::ArrayPattern(arr) => {
-                for elem in arr.elements.iter().flatten() {
-                    self.collect_pattern(elem);
-                }
-                if let Some(rest) = &arr.rest {
-                    self.collect_pattern(&rest.argument);
-                }
+                self.collect_array_pattern(arr);
             }
             BindingPatternKind::AssignmentPattern(assign) => {
                 self.collect_pattern(&assign.left);
             }
+        }
+    }
+
+    fn collect_object_pattern(&mut self, obj: &ObjectPattern<'_>) {
+        for prop in &obj.properties {
+            self.collect_pattern(&prop.value);
+        }
+        if let Some(rest) = &obj.rest {
+            self.collect_pattern(&rest.argument);
+        }
+    }
+
+    fn collect_array_pattern(&mut self, arr: &ArrayPattern<'_>) {
+        for elem in arr.elements.iter().flatten() {
+            self.collect_pattern(elem);
+        }
+        if let Some(rest) = &arr.rest {
+            self.collect_pattern(&rest.argument);
         }
     }
 }

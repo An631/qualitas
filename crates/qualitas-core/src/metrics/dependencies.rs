@@ -18,9 +18,24 @@ use crate::types::DependencyCouplingResult;
 fn build_file_dc_result(imports: &[IrImportRecordType]) -> DependencyCouplingResult {
     let (external_packages, internal_modules) = classify_imports(imports);
     let import_count = imports.len() as u32;
+    build_dc_result(external_packages, internal_modules, import_count, 0)
+}
+
+/// Analyze file-level import dependencies (from IR import records).
+pub fn analyze_file_dependencies_ir(imports: &[IrImportRecordType]) -> DependencyCouplingResult {
+    build_file_dc_result(imports)
+}
+
+/// Build a DC result from classified import sets and an API call count.
+fn build_dc_result(
+    external_packages: HashSet<String>,
+    internal_modules: HashSet<String>,
+    import_count: u32,
+    distinct_api_calls: u32,
+) -> DependencyCouplingResult {
     let distinct_sources = (external_packages.len() + internal_modules.len()) as u32;
     let external_ratio = compute_external_ratio(external_packages.len(), import_count);
-    let raw_score = compute_dc_raw(import_count, external_ratio, 0);
+    let raw_score = compute_dc_raw(import_count, external_ratio, distinct_api_calls);
 
     DependencyCouplingResult {
         import_count,
@@ -28,15 +43,10 @@ fn build_file_dc_result(imports: &[IrImportRecordType]) -> DependencyCouplingRes
         external_ratio,
         external_packages: external_packages.into_iter().collect(),
         internal_modules: internal_modules.into_iter().collect(),
-        distinct_api_calls: 0,
+        distinct_api_calls,
         closure_captures: 0,
         raw_score,
     }
-}
-
-/// Analyze file-level import dependencies (from IR import records).
-pub fn analyze_file_dependencies_ir(imports: &[IrImportRecordType]) -> DependencyCouplingResult {
-    build_file_dc_result(imports)
 }
 
 /// Analyze file-level import dependencies (from parser import records).
@@ -54,25 +64,7 @@ pub fn analyze_file_dependencies(imports: &[ImportRecord]) -> DependencyCoupling
     }
 
     let import_count = imports.len() as u32;
-    let distinct_sources = (external_packages.len() + internal_modules.len()) as u32;
-    let external_ratio = if import_count > 0 {
-        external_packages.len() as f64 / import_count as f64
-    } else {
-        0.0
-    };
-
-    let raw_score = compute_dc_raw(import_count, external_ratio, 0);
-
-    DependencyCouplingResult {
-        import_count,
-        distinct_sources,
-        external_ratio,
-        external_packages: external_packages.into_iter().collect(),
-        internal_modules: internal_modules.into_iter().collect(),
-        distinct_api_calls: 0,
-        closure_captures: 0,
-        raw_score,
-    }
+    build_dc_result(external_packages, internal_modules, import_count, 0)
 }
 
 fn root_package_name(source: &str) -> String {
@@ -178,23 +170,14 @@ pub fn compute_dc_from_events(
 ) -> DependencyCouplingResult {
     let api_calls = collect_api_calls(events);
     let (external_packages, internal_modules) = classify_imports(imports);
-
     let import_count = imports.len() as u32;
-    let distinct_sources = (external_packages.len() + internal_modules.len()) as u32;
-    let external_ratio = compute_external_ratio(external_packages.len(), import_count);
     let distinct_api_calls = api_calls.len() as u32;
-    let raw_score = compute_dc_raw(import_count, external_ratio, distinct_api_calls);
-
-    DependencyCouplingResult {
+    build_dc_result(
+        external_packages,
+        internal_modules,
         import_count,
-        distinct_sources,
-        external_ratio,
-        external_packages: external_packages.into_iter().collect(),
-        internal_modules: internal_modules.into_iter().collect(),
         distinct_api_calls,
-        closure_captures: 0,
-        raw_score,
-    }
+    )
 }
 
 #[cfg(test)]

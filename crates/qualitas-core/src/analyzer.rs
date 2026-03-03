@@ -82,11 +82,9 @@ pub fn analyze_source_str(
 
     // 6. File-level score (LOC-weighted average)
     let file_score = compute_file_score(&function_reports, &class_reports);
+
     let grade = grade_from_score(file_score, profile);
-    let flagged_fn_count = function_reports
-        .iter()
-        .filter(|r| r.needs_refactoring)
-        .count() as u32;
+    let flagged_fn_count = count_flagged(&function_reports);
 
     Ok(FileQualityReport {
         file_path: file_path.to_string(),
@@ -102,6 +100,10 @@ pub fn analyze_source_str(
         class_count,
         flagged_function_count: flagged_fn_count,
     })
+}
+
+fn count_flagged(reports: &[FunctionQualityReport]) -> u32 {
+    reports.iter().filter(|r| r.needs_refactoring).count() as u32
 }
 
 /// LOC-weighted average score across all functions and class methods.
