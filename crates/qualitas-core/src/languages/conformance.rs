@@ -99,13 +99,13 @@ mod tests {
         let adapter = TypeScriptAdapter;
         check_conformance(
             &adapter,
-            r#"
+            r"
 function add(a: number, b: number): number { return a + b; }
 function capitalize(s: string): string {
   if (!s) return s;
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
-"#,
+",
             "clean.ts",
         );
     }
@@ -115,7 +115,7 @@ function capitalize(s: string): string {
         let adapter = TypeScriptAdapter;
         check_conformance(
             &adapter,
-            r#"
+            r"
 function processOrders(orders: any[], config: any, logger: any, db: any, cache: any, validator: any) {
   const results: any[] = [];
   for (const order of orders) {
@@ -137,7 +137,7 @@ function processOrders(orders: any[], config: any, logger: any, db: any, cache: 
   }
   return results;
 }
-"#,
+",
             "complex.ts",
         );
     }
@@ -147,7 +147,7 @@ function processOrders(orders: any[], config: any, logger: any, db: any, cache: 
         let adapter = TypeScriptAdapter;
         check_conformance(
             &adapter,
-            r#"
+            r"
 const add = (a: number, b: number) => a + b;
 const process = (items: any[]) => {
   const result: any[] = [];
@@ -156,7 +156,7 @@ const process = (items: any[]) => {
   }
   return result;
 };
-"#,
+",
             "arrows.ts",
         );
     }
@@ -166,13 +166,13 @@ const process = (items: any[]) => {
         let adapter = TypeScriptAdapter;
         check_conformance(
             &adapter,
-            r#"
+            r"
 class Calculator {
   add(a: number, b: number) { return a + b; }
   subtract(a: number, b: number) { return a - b; }
   handler = (e: any) => { return e.target; };
 }
-"#,
+",
             "class.ts",
         );
     }
@@ -182,13 +182,13 @@ class Calculator {
         let adapter = TypeScriptAdapter;
         check_conformance(
             &adapter,
-            r#"
+            r"
 const handlers = {
   onClick: (e: any) => { console.log(e); return e.target; },
   onHover: (e: any) => e,
   fetch: function(url: string) { return url; },
 };
-"#,
+",
             "objects.ts",
         );
     }
@@ -227,7 +227,7 @@ const handlers = {
         let adapter = TypeScriptAdapter;
         check_conformance(
             &adapter,
-            r#"
+            r"
 function fetchAll(urls: string[]) {
   return urls.map((url) => {
     return fetch(url).then((res) => {
@@ -235,7 +235,7 @@ function fetchAll(urls: string[]) {
     });
   });
 }
-"#,
+",
             "callbacks.ts",
         );
     }
@@ -247,7 +247,7 @@ function fetchAll(urls: string[]) {
         let adapter = RustAdapter;
         check_conformance(
             &adapter,
-            r#"
+            r"
 fn add(a: i32, b: i32) -> i32 {
     a + b
 }
@@ -260,7 +260,7 @@ fn capitalize(s: &str) -> String {
     let first = chars.next().unwrap().to_uppercase().to_string();
     first + chars.as_str()
 }
-"#,
+",
             "clean.rs",
         );
     }
@@ -270,7 +270,7 @@ fn capitalize(s: &str) -> String {
         let adapter = RustAdapter;
         check_conformance(
             &adapter,
-            r#"
+            r"
 fn process_orders(
     orders: &[Order],
     config: &Config,
@@ -301,7 +301,7 @@ fn process_orders(
     }
     results
 }
-"#,
+",
             "complex.rs",
         );
     }
@@ -311,7 +311,7 @@ fn process_orders(
         let adapter = RustAdapter;
         check_conformance(
             &adapter,
-            r#"
+            r"
 struct Calculator;
 
 impl Calculator {
@@ -323,7 +323,7 @@ impl Calculator {
         a - b
     }
 }
-"#,
+",
             "impl.rs",
         );
     }
@@ -333,14 +333,14 @@ impl Calculator {
         let adapter = RustAdapter;
         check_conformance(
             &adapter,
-            r#"
+            r"
 fn process(items: Vec<i32>) -> Vec<i32> {
     items.iter()
         .filter(|x| **x > 0)
         .map(|x| x * 2)
         .collect()
 }
-"#,
+",
             "closures.rs",
         );
     }
@@ -384,7 +384,7 @@ fn describe(value: Option<i32>) -> &'static str {
         let adapter = RustAdapter;
         check_conformance(
             &adapter,
-            r#"
+            r"
 fn transform(data: Vec<Vec<i32>>) -> Vec<Vec<i32>> {
     data.into_iter()
         .map(|inner| {
@@ -394,7 +394,7 @@ fn transform(data: Vec<Vec<i32>>) -> Vec<Vec<i32>> {
         })
         .collect()
 }
-"#,
+",
             "nested_closures.rs",
         );
     }
@@ -404,13 +404,13 @@ fn transform(data: Vec<Vec<i32>>) -> Vec<Vec<i32>> {
         let adapter = RustAdapter;
         check_conformance(
             &adapter,
-            r#"
+            r"
 async fn fetch_data(url: &str) -> Result<String, Error> {
     let response = client.get(url).await?;
     let body = response.text().await?;
     Ok(body)
 }
-"#,
+",
             "async.rs",
         );
     }
