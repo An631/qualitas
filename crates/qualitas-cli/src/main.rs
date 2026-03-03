@@ -17,6 +17,7 @@ use qualitas_core::types::{
 
 use reporters::json::{render_file_json, render_project_json};
 use reporters::markdown::{render_markdown_project_report, render_markdown_report};
+use reporters::summary::render_executive_summary;
 use reporters::text::{render_file_report, render_project_report, TextReporterOptions};
 
 // ─── CLI argument parsing ─────────────────────────────────────────────────────
@@ -187,6 +188,7 @@ fn format_project_output(
     match format {
         "json" => render_project_json(report),
         "markdown" => render_markdown_project_report(report),
+        "summary" => render_executive_summary(report),
         _ => render_project_report(report, reporter_opts),
     }
 }
