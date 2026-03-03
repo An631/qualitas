@@ -8,6 +8,7 @@ use std::sync::OnceLock;
 use crate::ir::language::LanguageAdapter;
 
 // Register language adapters here:
+pub mod rust;
 pub mod typescript;
 // pub mod python;
 
@@ -18,6 +19,7 @@ mod conformance;
 fn all_adapters() -> Vec<Box<dyn LanguageAdapter>> {
     vec![
         Box::new(typescript::TypeScriptAdapter),
+        Box::new(rust::RustAdapter),
         // Box::new(python::PythonAdapter),
     ]
 }

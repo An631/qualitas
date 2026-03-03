@@ -35,6 +35,10 @@
     "lint": "npm run lint:rs && npm run lint:ts",
     "lint:rs": "cargo clippy -- -D warnings",
     "lint:ts": "eslint js/ tests/",
+    "quality": "cargo run -p qualitas-cli -- crates/ --threshold 60",
+    "quality:report": "cargo run -p qualitas-cli -- crates/ --threshold 60 --format markdown",
+    "quality:verbose": "cargo run -p qualitas-cli -- crates/ --threshold 60 --verbose",
+    "quality:flagged": "cargo run -p qualitas-cli -- crates/ --threshold 60 --flagged-only",
     "format": "cargo fmt && prettier --write \"js/**/*.ts\" \"tests/**/*.ts\"",
     "format:check": "cargo fmt --check && prettier --check \"js/**/*.ts\" \"tests/**/*.ts\""
   },
