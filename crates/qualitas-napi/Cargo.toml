@@ -1,0 +1,21 @@
+[package]
+name = "qualitas-napi"
+version = "0.1.0"
+edition = "2021"
+description = "Node.js native binding for qualitas (napi-rs)"
+
+[lib]
+name = "qualitas_ts"
+crate-type = ["cdylib"]
+
+[dependencies]
+qualitas-core = { path = "../qualitas-core" }
+napi = { version = "2", features = ["napi4", "serde-json"] }
+napi-derive = "2"
+serde_json = "1"
+
+[build-dependencies]
+napi-build = "2"
+
+[lints]
+workspace = true

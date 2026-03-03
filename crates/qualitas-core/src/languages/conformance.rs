@@ -13,9 +13,12 @@ mod tests {
 
     /// Run all conformance checks for a given adapter + source pair.
     fn check_conformance(adapter: &dyn LanguageAdapter, source: &str, file_name: &str) {
-        let extraction = adapter
-            .extract(source, file_name)
-            .unwrap_or_else(|e| panic!("Adapter {} failed to parse {file_name}: {e}", adapter.name()));
+        let extraction = adapter.extract(source, file_name).unwrap_or_else(|e| {
+            panic!(
+                "Adapter {} failed to parse {file_name}: {e}",
+                adapter.name()
+            )
+        });
 
         for func in &extraction.functions {
             check_function_conformance(adapter.name(), func);

@@ -1,0 +1,19 @@
+[package]
+name = "qualitas-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Standalone CLI for qualitas — code quality measurement without Node.js"
+
+[[bin]]
+name = "qualitas"
+path = "src/main.rs"
+
+[dependencies]
+qualitas-core = { path = "../qualitas-core" }
+clap = { version = "4", features = ["derive"] }
+colored = "2"
+serde_json = "1"
+walkdir = "2"
+
+[lints]
+workspace = true

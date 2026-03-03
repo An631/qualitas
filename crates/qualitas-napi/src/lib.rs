@@ -1,14 +1,9 @@
-mod analyzer;
-mod constants;
-pub mod ir;
-mod languages;
-mod metrics;
-mod parser;
-mod scorer;
-mod types;
-
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
+
+use qualitas_core::analyzer;
+use qualitas_core::languages;
+use qualitas_core::types;
 
 /// Analyze source code and return a `FileQualityReport` as JSON.
 ///

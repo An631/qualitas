@@ -1,38 +1,24 @@
-[package]
-name = "qualitas-ts"
-version = "0.1.0"
-edition = "2021"
-
-[lib]
-crate-type = ["cdylib"]
-
-[dependencies]
-napi = { version = "2", features = ["napi4", "serde-json"] }
-napi-derive = "2"
-oxc_parser = "0.46"
-oxc_ast = "0.46"
-oxc_allocator = "0.46"
-oxc_span = "0.46"
-oxc_syntax = "0.46"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-
-[build-dependencies]
-napi-build = "2"
+[workspace]
+members = [
+    "crates/qualitas-core",
+    "crates/qualitas-napi",
+    "crates/qualitas-cli",
+]
+resolver = "2"
 
 [profile.release]
 lto = true
 strip = true
 
 # ─── Lint configuration ──────────────────────────────────────────────────────
-[lints.rust]
+[workspace.lints.rust]
 # Treat these as errors so they surface immediately in cargo check / CI
 unused_imports     = "warn"
 unused_variables   = "warn"
 dead_code          = "warn"
 unused_mut         = "warn"
 
-[lints.clippy]
+[workspace.lints.clippy]
 # Enable a useful subset of clippy lints
 all         = { level = "warn", priority = -1 }  # clippy::all (correctness + style)
 pedantic    = { level = "warn", priority = -1 }  # stricter checks

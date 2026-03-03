@@ -32,13 +32,19 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Check formatting
-        run: cargo fmt --check
+        run: cargo fmt --all --check
 
       - name: Clippy (deny warnings)
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --workspace -- -D warnings
 
       - name: Run Rust unit tests
-        run: cargo test
+        run: cargo test --workspace
+
+      - name: Build standalone CLI
+        run: cargo build -p qualitas-cli
+
+      - name: CLI smoke test
+        run: ./target/debug/qualitas --help
 
   # ─── JS: build native + integration tests ────────────────────────────────
   js:
