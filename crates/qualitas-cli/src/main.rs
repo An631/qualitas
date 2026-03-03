@@ -294,6 +294,10 @@ fn load_adapter_info() -> (Vec<&'static str>, Vec<&'static str>) {
 
 /// Returns true if a directory entry should be descended into (not hidden, not excluded).
 fn should_enter_directory(entry: &walkdir::DirEntry) -> bool {
+    // Always enter the root directory (depth 0), even if it's "." or "./"
+    if entry.depth() == 0 {
+        return true;
+    }
     let name = entry.file_name().to_string_lossy();
     if entry.file_type().is_dir() {
         return !name.starts_with('.') && !DEFAULT_EXCLUDE.contains(&name.as_ref());
