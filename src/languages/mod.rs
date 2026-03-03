@@ -11,6 +11,9 @@ use crate::ir::language::LanguageAdapter;
 pub mod typescript;
 // pub mod python;
 
+#[cfg(test)]
+mod conformance;
+
 /// All registered language adapters.
 fn all_adapters() -> Vec<Box<dyn LanguageAdapter>> {
     vec![
