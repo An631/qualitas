@@ -29,6 +29,10 @@ impl LanguageAdapter for RustAdapter {
         &[".rs"]
     }
 
+    fn test_patterns(&self) -> &[&str] {
+        &["_test.rs", "_tests.rs", "tests/"]
+    }
+
     fn extract(&self, source: &str, file_path: &str) -> Result<FileExtraction, String> {
         let syntax: File = syn::parse_str(source)
             .map_err(|e| format!("qualitas parse error for {file_path}: {e}"))?;

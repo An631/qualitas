@@ -70,7 +70,6 @@ const DEFAULT_EXCLUDE: &[&str] = &[
     "coverage",
     "target",
 ];
-const TEST_PATTERNS: &[&str] = &[".test.", ".spec.", ".playwright-test."];
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
@@ -208,11 +207,15 @@ fn analyze_file(file_path: &str, options: &AnalysisOptions) -> Result<FileQualit
 // ─── File collection (walkdir) ────────────────────────────────────────────────
 
 fn collect_files(dir: &str, include_tests: bool) -> Result<Vec<String>, String> {
-    // Build set of supported extensions from registered adapters
+    // Build set of supported extensions and test patterns from registered adapters
     let adapters = list_adapters();
     let supported_extensions: Vec<&str> = adapters
         .iter()
         .flat_map(|a| a.extensions().iter().copied())
+        .collect();
+    let test_patterns: Vec<&str> = adapters
+        .iter()
+        .flat_map(|a| a.test_patterns().iter().copied())
         .collect();
 
     let mut files = Vec::new();
@@ -231,6 +234,7 @@ fn collect_files(dir: &str, include_tests: bool) -> Result<Vec<String>, String> 
         }
 
         let path = entry.path();
+        let full_path = path.to_string_lossy();
         let name = path.file_name().unwrap_or_default().to_string_lossy();
 
         // Check extension
@@ -243,12 +247,16 @@ fn collect_files(dir: &str, include_tests: bool) -> Result<Vec<String>, String> 
             continue;
         }
 
-        // Skip test files unless requested
-        if !include_tests && TEST_PATTERNS.iter().any(|p| name.contains(p)) {
+        // Skip test files unless requested (check both file name and path components)
+        if !include_tests
+            && test_patterns
+                .iter()
+                .any(|p| name.contains(p) || full_path.contains(p))
+        {
             continue;
         }
 
-        files.push(path.to_string_lossy().to_string());
+        files.push(full_path.to_string());
     }
 
     files.sort();

@@ -117,6 +117,15 @@ pub trait LanguageAdapter: Send + Sync {
     /// the metric-relevant events found in its body.
     fn extract(&self, source: &str, file_path: &str) -> Result<FileExtraction, String>;
 
+    /// File name patterns that indicate test files for this language.
+    ///
+    /// Used by the CLI to skip test files unless `--include-tests` is passed.
+    /// Patterns are matched as substrings against the file name.
+    /// Override this to provide language-specific test conventions.
+    fn test_patterns(&self) -> &[&str] {
+        &[]
+    }
+
     /// Return language-specific threshold overrides, or `None` to use defaults.
     ///
     /// Override this to adjust thresholds for your language. For example,

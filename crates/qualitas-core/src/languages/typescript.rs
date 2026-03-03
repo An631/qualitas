@@ -42,6 +42,10 @@ impl LanguageAdapter for TypeScriptAdapter {
         &[".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]
     }
 
+    fn test_patterns(&self) -> &[&str] {
+        &[".test.", ".spec.", ".playwright-test."]
+    }
+
     fn extract(&self, source: &str, file_path: &str) -> Result<FileExtraction, String> {
         let allocator = Allocator::default();
         let source_type = SourceType::from_path(file_path)
