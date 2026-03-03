@@ -1,8 +1,8 @@
 use colored::Colorize;
 
 use qualitas_core::types::{
-    FileQualityReport, FunctionQualityReport, Grade, ProjectQualityReport, RefactoringFlag,
-    Severity,
+    ClassQualityReport, FileQualityReport, FunctionQualityReport, Grade, ProjectQualityReport,
+    RefactoringFlag, Severity,
 };
 
 pub struct TextReporterOptions {
@@ -141,18 +141,102 @@ fn render_file_summary_line(report: &FileQualityReport) -> String {
     format!("File: {grade_str}{status}")
 }
 
-pub fn render_file_report(report: &FileQualityReport, opts: &TextReporterOptions) -> String {
-    let mut lines: Vec<String> = Vec::new();
+// ─── Extracted helper: render file header lines ───────────────────────────────
+
+fn render_file_header(report: &FileQualityReport) -> Vec<String> {
     let grade_str = grade_color(report.grade, &report.grade.to_string());
 
-    lines.push(String::new());
-    lines.push(format!("qualitas: {}", report.file_path).bold().to_string());
-    lines.push(format!(
-        "{}  score: {:.1}  grade: {grade_str}",
-        score_bar(report.score),
-        report.score,
-    ));
-    lines.push(String::new());
+    vec![
+        String::new(),
+        format!("qualitas: {}", report.file_path).bold().to_string(),
+        format!(
+            "{}  score: {:.1}  grade: {grade_str}",
+            score_bar(report.score),
+            report.score,
+        ),
+        String::new(),
+    ]
+}
+
+// ─── Extracted helper: render class scope ─────────────────────────────────────
+
+fn render_class_scope(report: &FileQualityReport, opts: &TextReporterOptions) -> Vec<String> {
+    let mut lines = Vec::new();
+    for cls in &report.classes {
+        if opts.flagged_only && !cls.needs_refactoring {
+            continue;
+        }
+        lines.push(format!(
+            "  {}  {}  score: {:.1}",
+            format!("class {}", cls.name).cyan(),
+            grade_color(cls.grade, &cls.grade.to_string()),
+            cls.score,
+        ));
+        if !cls.flags.is_empty() {
+            lines.push(format!("    {}", "Flags:".dimmed()));
+            for flag in &cls.flags {
+                lines.push(render_flag(flag, "    "));
+            }
+        }
+    }
+    lines
+}
+
+// ─── Extracted helper: filter functions by flagged_only setting ────────────────
+
+fn filter_functions(
+    functions: &[FunctionQualityReport],
+    flagged_only: bool,
+) -> Vec<&FunctionQualityReport> {
+    if flagged_only {
+        functions.iter().filter(|f| f.needs_refactoring).collect()
+    } else {
+        functions.iter().collect()
+    }
+}
+
+// ─── Extracted helper: render class with its methods in function scope ─────────
+
+fn render_class_methods(cls: &ClassQualityReport, opts: &TextReporterOptions) -> Vec<String> {
+    let class_fns = filter_functions(&cls.methods, opts.flagged_only);
+    if opts.flagged_only && class_fns.is_empty() {
+        return Vec::new();
+    }
+
+    let mut lines = vec![
+        String::new(),
+        format!(
+            "  {}  {}  score: {:.1}",
+            format!("class {}", cls.name).cyan(),
+            grade_color(cls.grade, &cls.grade.to_string()),
+            cls.score,
+        ),
+    ];
+    for m in &class_fns {
+        lines.push(render_function(m, opts));
+    }
+    lines
+}
+
+// ─── Extracted helper: render function scope ──────────────────────────────────
+
+fn render_function_scope(report: &FileQualityReport, opts: &TextReporterOptions) -> Vec<String> {
+    let mut lines = Vec::new();
+
+    let fns = filter_functions(&report.functions, opts.flagged_only);
+    for func in &fns {
+        lines.push(render_function(func, opts));
+    }
+
+    for cls in &report.classes {
+        lines.extend(render_class_methods(cls, opts));
+    }
+
+    lines
+}
+
+pub fn render_file_report(report: &FileQualityReport, opts: &TextReporterOptions) -> String {
+    let mut lines = render_file_header(report);
 
     if opts.scope == "file" {
         lines.push(render_file_summary_line(report));
@@ -160,61 +244,10 @@ pub fn render_file_report(report: &FileQualityReport, opts: &TextReporterOptions
     }
 
     if opts.scope == "class" {
-        for cls in &report.classes {
-            if opts.flagged_only && !cls.needs_refactoring {
-                continue;
-            }
-            lines.push(format!(
-                "  {}  {}  score: {:.1}",
-                format!("class {}", cls.name).cyan(),
-                grade_color(cls.grade, &cls.grade.to_string()),
-                cls.score,
-            ));
-            if !cls.flags.is_empty() {
-                lines.push(format!("    {}", "Flags:".dimmed()));
-                for flag in &cls.flags {
-                    lines.push(render_flag(flag, "    "));
-                }
-            }
-        }
+        lines.extend(render_class_scope(report, opts));
     } else {
         // scope: 'function' (default) — full per-function detail
-        let fns: Vec<&FunctionQualityReport> = if opts.flagged_only {
-            report
-                .functions
-                .iter()
-                .filter(|f| f.needs_refactoring)
-                .collect()
-        } else {
-            report.functions.iter().collect()
-        };
-
-        for func in &fns {
-            lines.push(render_function(func, opts));
-        }
-
-        for cls in &report.classes {
-            let class_fns: Vec<&FunctionQualityReport> = if opts.flagged_only {
-                cls.methods.iter().filter(|m| m.needs_refactoring).collect()
-            } else {
-                cls.methods.iter().collect()
-            };
-
-            if opts.flagged_only && class_fns.is_empty() {
-                continue;
-            }
-
-            lines.push(String::new());
-            lines.push(format!(
-                "  {}  {}  score: {:.1}",
-                format!("class {}", cls.name).cyan(),
-                grade_color(cls.grade, &cls.grade.to_string()),
-                cls.score,
-            ));
-            for m in &class_fns {
-                lines.push(render_function(m, opts));
-            }
-        }
+        lines.extend(render_function_scope(report, opts));
     }
 
     lines.push(String::new());
@@ -223,46 +256,46 @@ pub fn render_file_report(report: &FileQualityReport, opts: &TextReporterOptions
     lines.join("\n")
 }
 
-// ─── Project report ───────────────────────────────────────────────────────────
+// ─── Extracted helper: render project header ──────────────────────────────────
 
-pub fn render_project_report(report: &ProjectQualityReport, opts: &TextReporterOptions) -> String {
-    let mut lines: Vec<String> = Vec::new();
+fn render_project_header(report: &ProjectQualityReport) -> Vec<String> {
+    let s = &report.summary;
 
-    lines.push(String::new());
-    lines.push(
+    vec![
+        String::new(),
         format!("qualitas project: {}", report.dir_path)
             .bold()
             .to_string(),
-    );
-    lines.push(format!(
-        "{}  score: {:.1}  grade: {}",
-        score_bar(report.score),
-        report.score,
-        grade_color(report.grade, &report.grade.to_string()),
-    ));
-    lines.push(String::new());
+        format!(
+            "{}  score: {:.1}  grade: {}",
+            score_bar(report.score),
+            report.score,
+            grade_color(report.grade, &report.grade.to_string()),
+        ),
+        String::new(),
+        format!(
+            "  {} files  |  {} functions  |  {}",
+            s.total_files,
+            s.total_functions,
+            format!("{} need refactoring", s.flagged_functions).red(),
+        ),
+        format!(
+            "  Grades: {}  {}  {}  {}  {}",
+            format!("A:{}", s.grade_distribution.a).green(),
+            format!("B:{}", s.grade_distribution.b).cyan(),
+            format!("C:{}", s.grade_distribution.c).yellow(),
+            format!("D:{}", s.grade_distribution.d).red(),
+            format!("F:{}", s.grade_distribution.f).white().on_red(),
+        ),
+    ]
+}
 
-    let s = &report.summary;
-    lines.push(format!(
-        "  {} files  |  {} functions  |  {}",
-        s.total_files,
-        s.total_functions,
-        format!("{} need refactoring", s.flagged_functions).red(),
-    ));
-    lines.push(format!(
-        "  Grades: {}  {}  {}  {}  {}",
-        format!("A:{}", s.grade_distribution.a).green(),
-        format!("B:{}", s.grade_distribution.b).cyan(),
-        format!("C:{}", s.grade_distribution.c).yellow(),
-        format!("D:{}", s.grade_distribution.d).red(),
-        format!("F:{}", s.grade_distribution.f).white().on_red(),
-    ));
+// ─── Extracted helper: render worst functions section ─────────────────────────
 
-    if opts.scope == "module" {
-        return lines.join("\n");
-    }
+fn render_worst_functions_section(report: &ProjectQualityReport) -> Vec<String> {
+    let mut lines = Vec::new();
 
-    if !report.worst_functions.is_empty() && opts.scope == "function" {
+    if !report.worst_functions.is_empty() {
         lines.push(String::new());
         lines.push("  Worst functions:".bold().to_string());
         for func in report.worst_functions.iter().take(5) {
@@ -275,6 +308,22 @@ pub fn render_project_report(report: &ProjectQualityReport, opts: &TextReporterO
                 grade_color(func.grade, &func.grade.to_string()),
             ));
         }
+    }
+
+    lines
+}
+
+// ─── Project report ───────────────────────────────────────────────────────────
+
+pub fn render_project_report(report: &ProjectQualityReport, opts: &TextReporterOptions) -> String {
+    let mut lines = render_project_header(report);
+
+    if opts.scope == "module" {
+        return lines.join("\n");
+    }
+
+    if opts.scope == "function" {
+        lines.extend(render_worst_functions_section(report));
     }
 
     if opts.verbose || !opts.flagged_only {

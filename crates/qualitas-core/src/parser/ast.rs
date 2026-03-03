@@ -116,27 +116,42 @@ impl BoundaryCollector {
     }
 }
 
+/// Extract the local binding name from an import specifier.
+#[cfg(test)]
+fn specifier_local_name(spec: &ImportDeclarationSpecifier<'_>) -> String {
+    match spec {
+        ImportDeclarationSpecifier::ImportDefaultSpecifier(s) => s.local.name.to_string(),
+        ImportDeclarationSpecifier::ImportNamespaceSpecifier(s) => s.local.name.to_string(),
+        ImportDeclarationSpecifier::ImportSpecifier(s) => s.local.name.to_string(),
+    }
+}
+
+/// Try to extract function-like metadata from an expression (arrow or function expression).
+/// Returns `(start, end, is_async, is_generator)` or `None` if not function-like.
+#[cfg(test)]
+fn extract_function_expr_info(expr: &Expression<'_>) -> Option<(u32, u32, bool, bool)> {
+    match expr {
+        Expression::ArrowFunctionExpression(a) => {
+            Some((a.span.start, a.span.end, a.r#async, false))
+        }
+        Expression::FunctionExpression(f) => {
+            Some((f.span.start, f.span.end, f.r#async, f.generator))
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 impl<'a> Visit<'a> for BoundaryCollector {
     fn visit_import_declaration(&mut self, decl: &ImportDeclaration<'a>) {
         let source_str = decl.source.value.as_str();
         let is_ext = !source_str.starts_with('.') && !source_str.starts_with('/');
 
-        let mut names = Vec::new();
-        if let Some(specifiers) = &decl.specifiers {
-            for spec in specifiers {
-                let name = match spec {
-                    ImportDeclarationSpecifier::ImportDefaultSpecifier(s) => {
-                        s.local.name.to_string()
-                    }
-                    ImportDeclarationSpecifier::ImportNamespaceSpecifier(s) => {
-                        s.local.name.to_string()
-                    }
-                    ImportDeclarationSpecifier::ImportSpecifier(s) => s.local.name.to_string(),
-                };
-                names.push(name);
-            }
-        }
+        let names: Vec<String> = decl
+            .specifiers
+            .as_ref()
+            .map(|specs| specs.iter().map(specifier_local_name).collect())
+            .unwrap_or_default();
 
         self.imports.push(ImportRecord {
             source: source_str.to_string(),
@@ -169,7 +184,6 @@ impl<'a> Visit<'a> for BoundaryCollector {
     }
 
     fn visit_variable_declarator(&mut self, decl: &VariableDeclarator<'a>) {
-        // Capture: const foo = () => { ... } or const foo = function() { ... }
         let name = match &decl.id.kind {
             BindingPatternKind::BindingIdentifier(id) => id.name.to_string(),
             _ => {
@@ -179,29 +193,18 @@ impl<'a> Visit<'a> for BoundaryCollector {
         };
 
         if let Some(init) = &decl.init {
-            let (start, end, is_async, is_gen) = match init {
-                Expression::ArrowFunctionExpression(a) => {
-                    (a.span.start, a.span.end, a.r#async, false)
-                }
-                Expression::FunctionExpression(f) => {
-                    (f.span.start, f.span.end, f.r#async, f.generator)
-                }
-                _ => {
-                    walk::walk_variable_declarator(self, decl);
-                    return;
-                }
-            };
-
-            let info = FunctionInfo {
-                name: name.clone(),
-                inferred_name: Some(format!("const {name} = ")),
-                start,
-                end,
-                is_async,
-                is_generator: is_gen,
-                depth: self.depth,
-            };
-            self.push_function(info);
+            if let Some((start, end, is_async, is_gen)) = extract_function_expr_info(init) {
+                let info = FunctionInfo {
+                    name: name.clone(),
+                    inferred_name: Some(format!("const {name} = ")),
+                    start,
+                    end,
+                    is_async,
+                    is_generator: is_gen,
+                    depth: self.depth,
+                };
+                self.push_function(info);
+            }
         }
 
         walk::walk_variable_declarator(self, decl);

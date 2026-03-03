@@ -71,11 +71,9 @@ const DEFAULT_EXCLUDE: &[&str] = &[
     "target",
 ];
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
+// ─── Extracted helper: build CLI options from parsed args ─────────────────────
 
-fn main() {
-    let cli = Cli::parse();
-
+fn build_cli_options(cli: &Cli) -> (AnalysisOptions, TextReporterOptions) {
     let options = AnalysisOptions {
         profile: if cli.profile == "default" {
             None
@@ -94,6 +92,16 @@ fn main() {
         flagged_only: cli.flagged_only,
         scope: cli.scope.clone(),
     };
+
+    (options, reporter_opts)
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
+fn main() {
+    let cli = Cli::parse();
+
+    let (options, reporter_opts) = build_cli_options(&cli);
 
     let target = Path::new(&cli.path);
 
@@ -140,6 +148,31 @@ fn run_file(
     Ok(below_threshold)
 }
 
+// ─── Extracted helper: analyze all files, skipping errors ─────────────────────
+
+fn analyze_all_files(files: &[String], options: &AnalysisOptions) -> Vec<FileQualityReport> {
+    let mut file_reports = Vec::new();
+    for file_path in files {
+        match analyze_file(file_path, options) {
+            Ok(report) => file_reports.push(report),
+            Err(e) => {
+                eprintln!("qualitas: skipping {file_path}: {e}");
+            }
+        }
+    }
+    file_reports
+}
+
+// ─── Extracted helper: check if project score is below threshold ──────────────
+
+fn check_project_threshold(report: &ProjectQualityReport, threshold: f64) -> bool {
+    report.score < threshold
+        || report
+            .files
+            .iter()
+            .any(|f| f.functions.iter().any(|func| func.score < threshold))
+}
+
 // ─── Project analysis ─────────────────────────────────────────────────────────
 
 fn run_project(
@@ -154,23 +187,11 @@ fn run_project(
         process::exit(2);
     }
 
-    let mut file_reports = Vec::new();
-    for file_path in &files {
-        match analyze_file(file_path, options) {
-            Ok(report) => file_reports.push(report),
-            Err(e) => {
-                eprintln!("qualitas: skipping {file_path}: {e}");
-            }
-        }
-    }
+    let file_reports = analyze_all_files(&files, options);
 
     let report = build_project_report(&cli.path, file_reports, cli.threshold);
 
-    let below_threshold = report.score < cli.threshold
-        || report
-            .files
-            .iter()
-            .any(|f| f.functions.iter().any(|func| func.score < cli.threshold));
+    let below_threshold = check_project_threshold(&report, cli.threshold);
 
     let output = match cli.format.as_str() {
         "json" => render_project_json(&report),
@@ -204,6 +225,39 @@ fn analyze_file(file_path: &str, options: &AnalysisOptions) -> Result<FileQualit
     Ok(report)
 }
 
+// ─── Extracted helper: check if a single file is supported ────────────────────
+
+fn is_supported_file(
+    path: &Path,
+    supported_extensions: &[&str],
+    test_patterns: &[&str],
+    include_tests: bool,
+) -> bool {
+    let full_path = path.to_string_lossy();
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+
+    // Check extension
+    let ext = path
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
+
+    if !supported_extensions.contains(&ext.as_str()) {
+        return false;
+    }
+
+    // Skip test files unless requested (check both file name and path components)
+    if !include_tests
+        && test_patterns
+            .iter()
+            .any(|p| name.contains(p) || full_path.contains(p))
+    {
+        return false;
+    }
+
+    true
+}
+
 // ─── File collection (walkdir) ────────────────────────────────────────────────
 
 fn collect_files(dir: &str, include_tests: bool) -> Result<Vec<String>, String> {
@@ -234,44 +288,23 @@ fn collect_files(dir: &str, include_tests: bool) -> Result<Vec<String>, String> 
         }
 
         let path = entry.path();
-        let full_path = path.to_string_lossy();
-        let name = path.file_name().unwrap_or_default().to_string_lossy();
 
-        // Check extension
-        let ext = path
-            .extension()
-            .map(|e| format!(".{}", e.to_string_lossy()))
-            .unwrap_or_default();
-
-        if !supported_extensions.contains(&ext.as_str()) {
+        if !is_supported_file(path, &supported_extensions, &test_patterns, include_tests) {
             continue;
         }
 
-        // Skip test files unless requested (check both file name and path components)
-        if !include_tests
-            && test_patterns
-                .iter()
-                .any(|p| name.contains(p) || full_path.contains(p))
-        {
-            continue;
-        }
-
-        files.push(full_path.to_string());
+        files.push(path.to_string_lossy().to_string());
     }
 
     files.sort();
     Ok(files)
 }
 
-// ─── Project report builder ───────────────────────────────────────────────────
+// ─── Extracted helper: collect all functions from file reports ─────────────────
 
-fn build_project_report(
-    dir_path: &str,
-    file_reports: Vec<FileQualityReport>,
-    threshold: f64,
-) -> ProjectQualityReport {
+fn collect_all_functions(reports: &[FileQualityReport]) -> Vec<&FunctionQualityReport> {
     let mut all_functions: Vec<&FunctionQualityReport> = Vec::new();
-    for fr in &file_reports {
+    for fr in reports {
         for func in &fr.functions {
             all_functions.push(func);
         }
@@ -281,6 +314,55 @@ fn build_project_report(
             }
         }
     }
+    all_functions
+}
+
+// ─── Extracted helper: build grade distribution ───────────────────────────────
+
+fn build_grade_distribution(functions: &[&FunctionQualityReport]) -> GradeDistribution {
+    let mut dist = GradeDistribution {
+        a: 0,
+        b: 0,
+        c: 0,
+        d: 0,
+        f: 0,
+    };
+    for func in functions {
+        match func.grade {
+            Grade::A => dist.a += 1,
+            Grade::B => dist.b += 1,
+            Grade::C => dist.c += 1,
+            Grade::D => dist.d += 1,
+            Grade::F => dist.f += 1,
+        }
+    }
+    dist
+}
+
+// ─── Extracted helper: find worst-scoring functions ───────────────────────────
+
+fn find_worst_functions(
+    functions: &[&FunctionQualityReport],
+    limit: usize,
+) -> Vec<FunctionQualityReport> {
+    let mut worst: Vec<FunctionQualityReport> = functions.iter().map(|f| (*f).clone()).collect();
+    worst.sort_by(|a, b| {
+        a.score
+            .partial_cmp(&b.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    worst.truncate(limit);
+    worst
+}
+
+// ─── Project report builder ───────────────────────────────────────────────────
+
+fn build_project_report(
+    dir_path: &str,
+    file_reports: Vec<FileQualityReport>,
+    threshold: f64,
+) -> ProjectQualityReport {
+    let all_functions = collect_all_functions(&file_reports);
 
     // LOC-weighted average
     let scores: Vec<(f64, u32)> = all_functions
@@ -294,31 +376,9 @@ fn build_project_report(
         aggregate_scores(&scores)
     };
 
-    let mut dist = GradeDistribution {
-        a: 0,
-        b: 0,
-        c: 0,
-        d: 0,
-        f: 0,
-    };
-    for func in &all_functions {
-        match func.grade {
-            Grade::A => dist.a += 1,
-            Grade::B => dist.b += 1,
-            Grade::C => dist.c += 1,
-            Grade::D => dist.d += 1,
-            Grade::F => dist.f += 1,
-        }
-    }
+    let dist = build_grade_distribution(&all_functions);
 
-    let mut worst: Vec<FunctionQualityReport> =
-        all_functions.iter().map(|f| (*f).clone()).collect();
-    worst.sort_by(|a, b| {
-        a.score
-            .partial_cmp(&b.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    worst.truncate(10);
+    let worst = find_worst_functions(&all_functions, 10);
 
     let grade = grade_from_score(weighted_score, None);
 

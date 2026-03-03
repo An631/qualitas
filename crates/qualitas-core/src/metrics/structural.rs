@@ -99,6 +99,86 @@ pub fn analyze_structural_body(
 
 use crate::ir::events::QualitasEvent;
 
+/// Mutable accumulator for structural event processing.
+struct SmState {
+    nesting_depth: u32,
+    max_nesting_depth: u32,
+    return_count: u32,
+    nested_fn_depth: u32,
+}
+
+impl SmState {
+    fn new() -> Self {
+        Self {
+            nesting_depth: 0,
+            max_nesting_depth: 0,
+            return_count: 0,
+            nested_fn_depth: 0,
+        }
+    }
+
+    /// Track nested function boundaries. Returns true if the event was consumed.
+    fn handle_nested_fn_boundary(&mut self, event: &QualitasEvent) -> bool {
+        match event {
+            QualitasEvent::NestedFunctionEnter => {
+                self.nested_fn_depth += 1;
+                true
+            }
+            QualitasEvent::NestedFunctionExit => {
+                self.nested_fn_depth = self.nested_fn_depth.saturating_sub(1);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn is_inside_nested_fn(&self) -> bool {
+        self.nested_fn_depth > 0
+    }
+
+    fn enter_nesting(&mut self) {
+        self.nesting_depth += 1;
+        if self.nesting_depth > self.max_nesting_depth {
+            self.max_nesting_depth = self.nesting_depth;
+        }
+    }
+
+    fn exit_nesting(&mut self) {
+        self.nesting_depth = self.nesting_depth.saturating_sub(1);
+    }
+
+    /// Handle a single structural event that is NOT inside a nested function boundary.
+    fn process_outer_event(&mut self, event: &QualitasEvent) {
+        match event {
+            QualitasEvent::NestingEnter => self.enter_nesting(),
+            QualitasEvent::NestingExit => self.exit_nesting(),
+            QualitasEvent::ReturnStatement => self.return_count += 1,
+            _ => {}
+        }
+    }
+}
+
+/// Walk structural events and extract `(max_nesting, return_count, _)`.
+///
+/// Events inside `NestedFunctionEnter`/`NestedFunctionExit` boundaries are
+/// skipped because nested functions are analyzed separately.
+/// The third tuple element is reserved for future use and is always 0.
+fn process_structural_events(events: &[QualitasEvent]) -> (u32, u32, u32) {
+    let mut state = SmState::new();
+
+    for event in events {
+        if state.handle_nested_fn_boundary(event) {
+            continue;
+        }
+        if state.is_inside_nested_fn() {
+            continue;
+        }
+        state.process_outer_event(event);
+    }
+
+    (state.max_nesting_depth, state.return_count, 0)
+}
+
 /// Compute structural metrics from a stream of IR events (language-agnostic).
 ///
 /// `source`, `span_start`, `span_end` are used for LOC counting.
@@ -120,38 +200,7 @@ pub fn compute_sm_from_events(
         .count() as u32
         + 1;
 
-    let mut nesting_depth: u32 = 0;
-    let mut max_nesting_depth: u32 = 0;
-    let mut return_count: u32 = 0;
-    let mut nested_fn_depth: u32 = 0; // track nested function boundaries
-
-    for event in events {
-        match event {
-            QualitasEvent::NestedFunctionEnter => {
-                nested_fn_depth += 1;
-            }
-            QualitasEvent::NestedFunctionExit => {
-                nested_fn_depth = nested_fn_depth.saturating_sub(1);
-            }
-            _ if nested_fn_depth > 0 => {
-                // Skip events inside nested functions
-            }
-            QualitasEvent::NestingEnter => {
-                nesting_depth += 1;
-                if nesting_depth > max_nesting_depth {
-                    max_nesting_depth = nesting_depth;
-                }
-            }
-            QualitasEvent::NestingExit => {
-                nesting_depth = nesting_depth.saturating_sub(1);
-            }
-            QualitasEvent::ReturnStatement => {
-                return_count += 1;
-            }
-            _ => {}
-        }
-    }
-
+    let (max_nesting_depth, return_count, _) = process_structural_events(events);
     let raw_score = compute_sm_raw(loc, param_count, max_nesting_depth, return_count);
 
     StructuralResult {

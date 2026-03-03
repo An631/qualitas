@@ -180,6 +180,23 @@ fn property_key_name(key: &PropertyKey<'_>) -> String {
     }
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+fn import_specifier_local_name(spec: &ImportDeclarationSpecifier<'_>) -> String {
+    match spec {
+        ImportDeclarationSpecifier::ImportDefaultSpecifier(s) => s.local.name.to_string(),
+        ImportDeclarationSpecifier::ImportNamespaceSpecifier(s) => s.local.name.to_string(),
+        ImportDeclarationSpecifier::ImportSpecifier(s) => s.local.name.to_string(),
+    }
+}
+
+fn extract_import_names(decl: &ImportDeclaration<'_>) -> Vec<String> {
+    decl.specifiers
+        .as_ref()
+        .map(|specs| specs.iter().map(import_specifier_local_name).collect())
+        .unwrap_or_default()
+}
+
 // ─── Visitor implementation ──────────────────────────────────────────────────
 
 impl<'a> Visit<'a> for TsExtractor<'_> {
@@ -187,21 +204,9 @@ impl<'a> Visit<'a> for TsExtractor<'_> {
         let source_str = decl.source.value.as_str();
         let is_ext = !source_str.starts_with('.') && !source_str.starts_with('/');
 
-        let mut names = Vec::new();
-        if let Some(specifiers) = &decl.specifiers {
-            for spec in specifiers {
-                let name = match spec {
-                    ImportDeclarationSpecifier::ImportDefaultSpecifier(s) => {
-                        s.local.name.to_string()
-                    }
-                    ImportDeclarationSpecifier::ImportNamespaceSpecifier(s) => {
-                        s.local.name.to_string()
-                    }
-                    ImportDeclarationSpecifier::ImportSpecifier(s) => s.local.name.to_string(),
-                };
-                self.imported_names.insert(name.clone());
-                names.push(name);
-            }
+        let names = extract_import_names(decl);
+        for n in &names {
+            self.imported_names.insert(n.clone());
         }
 
         self.imports.push(ImportRecord {

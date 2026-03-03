@@ -215,6 +215,108 @@ pub fn analyze_cfc_body<'a>(body: &FunctionBody<'a>, fn_name: &str) -> Cognitive
 
 use crate::ir::events::QualitasEvent;
 
+/// Apply a control-flow increment: +1 base plus nesting depth penalty.
+/// Returns `(score_delta, nesting_penalty_delta, base_increment_delta)`.
+fn apply_control_flow_increment(nesting_depth: u32) -> (u32, u32, u32) {
+    (1 + nesting_depth, nesting_depth, 1)
+}
+
+/// Apply an async-complexity increment: +1 plus nesting depth bonus.
+/// Returns `(score_delta, async_penalty_delta)`.
+fn apply_async_increment(nesting_depth: u32) -> (u32, u32) {
+    let bonus = nesting_depth;
+    (1 + bonus, 1 + bonus)
+}
+
+/// Mutable accumulator for CFC computation, replacing loose local variables.
+struct CfcState {
+    score: u32,
+    nesting_depth: u32,
+    nesting_penalty: u32,
+    base_increments: u32,
+    async_penalty: u32,
+    max_nesting_depth: u32,
+}
+
+impl CfcState {
+    fn new() -> Self {
+        Self {
+            score: 0,
+            nesting_depth: 0,
+            nesting_penalty: 0,
+            base_increments: 0,
+            async_penalty: 0,
+            max_nesting_depth: 0,
+        }
+    }
+
+    fn into_result(self) -> CognitiveFlowResult {
+        CognitiveFlowResult {
+            score: self.score,
+            nesting_penalty: self.nesting_penalty,
+            base_increments: self.base_increments,
+            async_penalty: self.async_penalty,
+            max_nesting_depth: self.max_nesting_depth,
+        }
+    }
+
+    fn add_control_flow(&mut self) {
+        let (sd, np, bi) = apply_control_flow_increment(self.nesting_depth);
+        self.score += sd;
+        self.nesting_penalty += np;
+        self.base_increments += bi;
+        self.track_max_nesting();
+    }
+
+    fn add_flat_increment(&mut self) {
+        self.score += 1;
+        self.base_increments += 1;
+    }
+
+    fn add_async_complexity(&mut self) {
+        let (sd, ap) = apply_async_increment(self.nesting_depth);
+        self.score += sd;
+        self.async_penalty += ap;
+    }
+
+    fn add_nested_callback(&mut self) {
+        if self.nesting_depth > 0 {
+            self.score += self.nesting_depth;
+            self.async_penalty += self.nesting_depth;
+        }
+    }
+
+    fn enter_nesting(&mut self) {
+        self.nesting_depth += 1;
+        self.track_max_nesting();
+    }
+
+    fn exit_nesting(&mut self) {
+        self.nesting_depth = self.nesting_depth.saturating_sub(1);
+    }
+
+    fn track_max_nesting(&mut self) {
+        if self.nesting_depth > self.max_nesting_depth {
+            self.max_nesting_depth = self.nesting_depth;
+        }
+    }
+}
+
+/// Handle a single IR event, updating the CFC accumulator.
+fn process_cfc_event(event: &QualitasEvent, state: &mut CfcState) {
+    match event {
+        QualitasEvent::ControlFlow(_) => state.add_control_flow(),
+        QualitasEvent::LogicOp(_) | QualitasEvent::RecursiveCall | QualitasEvent::LabeledFlow => {
+            state.add_flat_increment();
+        }
+        QualitasEvent::AsyncComplexity(_) => state.add_async_complexity(),
+        QualitasEvent::NestedCallback => state.add_nested_callback(),
+        QualitasEvent::NestingEnter => state.enter_nesting(),
+        QualitasEvent::NestingExit => state.exit_nesting(),
+        _ => {}
+    }
+}
+
 /// Compute CFC from a stream of IR events (language-agnostic).
 ///
 /// Event ordering contract:
@@ -222,74 +324,13 @@ use crate::ir::events::QualitasEvent;
 ///   so `nesting_depth` reflects the depth at the point of the branch.
 /// - `NestingEnter`/`NestingExit` must be balanced.
 pub fn compute_cfc(events: &[QualitasEvent]) -> CognitiveFlowResult {
-    let mut score: u32 = 0;
-    let mut nesting_penalty: u32 = 0;
-    let mut base_increments: u32 = 0;
-    let mut async_penalty: u32 = 0;
-    let mut nesting_depth: u32 = 0;
-    let mut max_nesting_depth: u32 = 0;
+    let mut state = CfcState::new();
 
     for event in events {
-        match event {
-            QualitasEvent::ControlFlow(_) => {
-                // +1 + nesting_depth (same as add_nesting)
-                score += 1 + nesting_depth;
-                nesting_penalty += nesting_depth;
-                base_increments += 1;
-                if nesting_depth > max_nesting_depth {
-                    max_nesting_depth = nesting_depth;
-                }
-            }
-
-            QualitasEvent::LogicOp(_) => {
-                // +1 flat (same as add_flat)
-                score += 1;
-                base_increments += 1;
-            }
-
-            QualitasEvent::RecursiveCall | QualitasEvent::LabeledFlow => {
-                score += 1;
-                base_increments += 1;
-            }
-
-            QualitasEvent::AsyncComplexity(_) => {
-                // +1 + nesting_depth (same as add_async)
-                let bonus = nesting_depth;
-                score += 1 + bonus;
-                async_penalty += 1 + bonus;
-            }
-
-            QualitasEvent::NestedCallback => {
-                // Arrow/lambda as callback: +nesting_depth (same as arrow handler)
-                if nesting_depth > 0 {
-                    score += nesting_depth;
-                    async_penalty += nesting_depth;
-                }
-            }
-
-            QualitasEvent::NestingEnter => {
-                nesting_depth += 1;
-                if nesting_depth > max_nesting_depth {
-                    max_nesting_depth = nesting_depth;
-                }
-            }
-
-            QualitasEvent::NestingExit => {
-                nesting_depth = nesting_depth.saturating_sub(1);
-            }
-
-            // Events consumed by other metrics — ignore here
-            _ => {}
-        }
+        process_cfc_event(event, &mut state);
     }
 
-    CognitiveFlowResult {
-        score,
-        nesting_penalty,
-        base_increments,
-        async_penalty,
-        max_nesting_depth,
-    }
+    state.into_result()
 }
 
 #[cfg(test)]

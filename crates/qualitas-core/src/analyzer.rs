@@ -81,24 +81,8 @@ pub fn analyze_source_str(
         .collect();
 
     // 6. File-level score (LOC-weighted average)
-    let mut all_scores: Vec<(f64, u32)> = function_reports
-        .iter()
-        .map(|r| (r.score, r.metrics.structural.loc.max(1)))
-        .collect();
-    for cr in &class_reports {
-        for mr in &cr.methods {
-            all_scores.push((mr.score, mr.metrics.structural.loc.max(1)));
-        }
-    }
-
-    let file_score = if all_scores.is_empty() {
-        100.0
-    } else {
-        aggregate_scores(&all_scores)
-    };
-
+    let file_score = compute_file_score(&function_reports, &class_reports);
     let grade = grade_from_score(file_score, profile);
-    let needs_refactoring = file_score < refactoring_threshold;
     let flagged_fn_count = function_reports
         .iter()
         .filter(|r| r.needs_refactoring)
@@ -108,7 +92,7 @@ pub fn analyze_source_str(
         file_path: file_path.to_string(),
         score: file_score,
         grade,
-        needs_refactoring,
+        needs_refactoring: file_score < refactoring_threshold,
         flags: vec![],
         functions: function_reports,
         classes: class_reports,
@@ -118,6 +102,27 @@ pub fn analyze_source_str(
         class_count,
         flagged_function_count: flagged_fn_count,
     })
+}
+
+/// LOC-weighted average score across all functions and class methods.
+fn compute_file_score(
+    function_reports: &[FunctionQualityReport],
+    class_reports: &[ClassQualityReport],
+) -> f64 {
+    let mut scores: Vec<(f64, u32)> = function_reports
+        .iter()
+        .map(|r| (r.score, r.metrics.structural.loc.max(1)))
+        .collect();
+    for cr in class_reports {
+        for mr in &cr.methods {
+            scores.push((mr.score, mr.metrics.structural.loc.max(1)));
+        }
+    }
+    if scores.is_empty() {
+        100.0
+    } else {
+        aggregate_scores(&scores)
+    }
 }
 
 // ─── Report assembly from event streams ─────────────────────────────────────

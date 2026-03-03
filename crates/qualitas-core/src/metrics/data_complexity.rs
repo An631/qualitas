@@ -42,45 +42,20 @@ impl DciVisitor {
     }
 
     pub fn compute(self) -> DataComplexityResult {
-        let eta1 = self.distinct_operators.len() as f64;
-        let eta2 = self.distinct_operands.len() as f64;
-        let n1 = self.total_operators as f64;
-        let n2 = self.total_operands as f64;
-
         let halstead = HalsteadCounts {
-            distinct_operators: eta1 as u32,
-            distinct_operands: eta2 as u32,
-            total_operators: n1 as u32,
-            total_operands: n2 as u32,
+            distinct_operators: self.distinct_operators.len() as u32,
+            distinct_operands: self.distinct_operands.len() as u32,
+            total_operators: self.total_operators,
+            total_operands: self.total_operands,
         };
 
-        if eta1 + eta2 < 2.0 {
-            return DataComplexityResult {
-                halstead,
-                difficulty: 0.0,
-                volume: 0.0,
-                effort: 0.0,
-                raw_score: 0.0,
-            };
-        }
+        let eta1 = f64::from(halstead.distinct_operators);
+        let eta2 = f64::from(halstead.distinct_operands);
+        let n1 = f64::from(halstead.total_operators);
+        let n2 = f64::from(halstead.total_operands);
 
-        let vocabulary = eta1 + eta2;
-        let length = n1 + n2;
-        let volume = if vocabulary > 1.0 {
-            length * vocabulary.log2()
-        } else {
-            0.0
-        };
-        let difficulty = if eta2 > 0.0 {
-            (eta1 / 2.0) * (n2 / eta2)
-        } else {
-            0.0
-        };
-        let effort = difficulty * volume;
-
-        let raw_score = crate::constants::DCI_DIFFICULTY_WEIGHT
-            * (difficulty / crate::constants::NORM_DCI_DIFFICULTY)
-            + crate::constants::DCI_VOLUME_WEIGHT * (volume / crate::constants::NORM_DCI_VOLUME);
+        let (volume, difficulty, effort) = compute_halstead_metrics(eta1, eta2, n1, n2);
+        let raw_score = compute_halstead_score(difficulty, volume);
 
         DataComplexityResult {
             halstead,
@@ -187,8 +162,40 @@ pub fn analyze_dci_body<'a>(body: &FunctionBody<'a>) -> DataComplexityResult {
 
 use crate::ir::events::QualitasEvent;
 
-/// Compute DCI (Halstead metrics) from a stream of IR events (language-agnostic).
-pub fn compute_dci(events: &[QualitasEvent]) -> DataComplexityResult {
+/// Compute Halstead volume, difficulty, and effort from the four base counts.
+///
+/// Returns `(volume, difficulty, effort)`. If the vocabulary is too small
+/// (`eta1 + eta2 < 2`), all three values are zero.
+fn compute_halstead_metrics(eta1: f64, eta2: f64, n1: f64, n2: f64) -> (f64, f64, f64) {
+    if eta1 + eta2 < 2.0 {
+        return (0.0, 0.0, 0.0);
+    }
+
+    let vocabulary = eta1 + eta2;
+    let length = n1 + n2;
+    let volume = if vocabulary > 1.0 {
+        length * vocabulary.log2()
+    } else {
+        0.0
+    };
+    let difficulty = if eta2 > 0.0 {
+        (eta1 / 2.0) * (n2 / eta2)
+    } else {
+        0.0
+    };
+    let effort = difficulty * volume;
+
+    (volume, difficulty, effort)
+}
+
+/// Compute the weighted raw DCI score from difficulty and volume.
+fn compute_halstead_score(difficulty: f64, volume: f64) -> f64 {
+    crate::constants::DCI_DIFFICULTY_WEIGHT * (difficulty / crate::constants::NORM_DCI_DIFFICULTY)
+        + crate::constants::DCI_VOLUME_WEIGHT * (volume / crate::constants::NORM_DCI_VOLUME)
+}
+
+/// Collect Halstead operator/operand counts from IR events.
+fn collect_halstead_counts(events: &[QualitasEvent]) -> HalsteadCounts {
     let mut distinct_operators: HashSet<String> = HashSet::new();
     let mut distinct_operands: HashSet<String> = HashSet::new();
     let mut total_operators: u32 = 0;
@@ -208,45 +215,25 @@ pub fn compute_dci(events: &[QualitasEvent]) -> DataComplexityResult {
         }
     }
 
-    let eta1 = distinct_operators.len() as f64;
-    let eta2 = distinct_operands.len() as f64;
-    let n1 = f64::from(total_operators);
-    let n2 = f64::from(total_operands);
-
-    let halstead = HalsteadCounts {
-        distinct_operators: eta1 as u32,
-        distinct_operands: eta2 as u32,
-        total_operators: n1 as u32,
-        total_operands: n2 as u32,
-    };
-
-    if eta1 + eta2 < 2.0 {
-        return DataComplexityResult {
-            halstead,
-            difficulty: 0.0,
-            volume: 0.0,
-            effort: 0.0,
-            raw_score: 0.0,
-        };
+    HalsteadCounts {
+        distinct_operators: distinct_operators.len() as u32,
+        distinct_operands: distinct_operands.len() as u32,
+        total_operators,
+        total_operands,
     }
+}
 
-    let vocabulary = eta1 + eta2;
-    let length = n1 + n2;
-    let volume = if vocabulary > 1.0 {
-        length * vocabulary.log2()
-    } else {
-        0.0
-    };
-    let difficulty = if eta2 > 0.0 {
-        (eta1 / 2.0) * (n2 / eta2)
-    } else {
-        0.0
-    };
-    let effort = difficulty * volume;
+/// Compute DCI (Halstead metrics) from a stream of IR events (language-agnostic).
+pub fn compute_dci(events: &[QualitasEvent]) -> DataComplexityResult {
+    let halstead = collect_halstead_counts(events);
 
-    let raw_score = crate::constants::DCI_DIFFICULTY_WEIGHT
-        * (difficulty / crate::constants::NORM_DCI_DIFFICULTY)
-        + crate::constants::DCI_VOLUME_WEIGHT * (volume / crate::constants::NORM_DCI_VOLUME);
+    let eta1 = f64::from(halstead.distinct_operators);
+    let eta2 = f64::from(halstead.distinct_operands);
+    let n1 = f64::from(halstead.total_operators);
+    let n2 = f64::from(halstead.total_operands);
+
+    let (volume, difficulty, effort) = compute_halstead_metrics(eta1, eta2, n1, n2);
+    let raw_score = compute_halstead_score(difficulty, volume);
 
     DataComplexityResult {
         halstead,

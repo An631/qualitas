@@ -23,59 +23,60 @@ pub fn grade_from_score(score: f64, profile: Option<&str>) -> Grade {
     }
 }
 
-/// Generate all applicable refactoring flags for a function report.
-pub fn generate_flags(metrics: &MetricBreakdown) -> Vec<RefactoringFlag> {
+/// Check cognitive flow complexity thresholds.
+fn check_cfc_flags(score: u32) -> Vec<RefactoringFlag> {
     let mut flags = Vec::new();
-
-    let cfc = metrics.cognitive_flow.score;
-    if cfc >= CFC_ERROR {
+    if score >= CFC_ERROR {
         flags.push(RefactoringFlag {
             flag_type: FlagType::HighCognitiveFlow,
             severity: Severity::Error,
-            message: format!("Cognitive flow complexity is {cfc} (threshold: {CFC_ERROR})"),
+            message: format!("Cognitive flow complexity is {score} (threshold: {CFC_ERROR})"),
             suggestion: "Extract nested branches into separate named functions. Use early returns to flatten the nesting hierarchy.".to_string(),
-            observed_value: f64::from(cfc),
+            observed_value: f64::from(score),
             threshold: f64::from(CFC_ERROR),
         });
-    } else if cfc >= CFC_WARNING {
+    } else if score >= CFC_WARNING {
         flags.push(RefactoringFlag {
             flag_type: FlagType::HighCognitiveFlow,
             severity: Severity::Warning,
-            message: format!("Cognitive flow complexity is {cfc} (threshold: {CFC_WARNING})"),
+            message: format!("Cognitive flow complexity is {score} (threshold: {CFC_WARNING})"),
             suggestion: "Consider extracting complex conditional logic into helper functions."
                 .to_string(),
-            observed_value: f64::from(cfc),
+            observed_value: f64::from(score),
             threshold: f64::from(CFC_WARNING),
         });
     }
+    flags
+}
 
-    let dci_d = metrics.data_complexity.difficulty;
-    if dci_d >= DCI_DIFFICULTY_ERROR {
+/// Check Halstead difficulty and effort thresholds.
+fn check_dci_flags(difficulty: f64, effort: f64) -> Vec<RefactoringFlag> {
+    let mut flags = Vec::new();
+    if difficulty >= DCI_DIFFICULTY_ERROR {
         flags.push(RefactoringFlag {
             flag_type: FlagType::HighDataComplexity,
             severity: Severity::Error,
             message: format!(
-                "Halstead difficulty is {dci_d:.1} (threshold: {DCI_DIFFICULTY_ERROR})"
+                "Halstead difficulty is {difficulty:.1} (threshold: {DCI_DIFFICULTY_ERROR})"
             ),
             suggestion: "Reduce the number of distinct operators and variables. Extract repeated computations into named constants or helper functions.".to_string(),
-            observed_value: dci_d,
+            observed_value: difficulty,
             threshold: DCI_DIFFICULTY_ERROR,
         });
-    } else if dci_d >= DCI_DIFFICULTY_WARNING {
+    } else if difficulty >= DCI_DIFFICULTY_WARNING {
         flags.push(RefactoringFlag {
             flag_type: FlagType::HighDataComplexity,
             severity: Severity::Warning,
             message: format!(
-                "Halstead difficulty is {dci_d:.1} (threshold: {DCI_DIFFICULTY_WARNING})"
+                "Halstead difficulty is {difficulty:.1} (threshold: {DCI_DIFFICULTY_WARNING})"
             ),
             suggestion: "Consider reducing variable density by splitting this function."
                 .to_string(),
-            observed_value: dci_d,
+            observed_value: difficulty,
             threshold: DCI_DIFFICULTY_WARNING,
         });
     }
 
-    let effort = metrics.data_complexity.effort;
     if effort >= HALSTEAD_EFFORT_ERROR {
         flags.push(RefactoringFlag {
             flag_type: FlagType::HighHalsteadEffort,
@@ -98,55 +99,67 @@ pub fn generate_flags(metrics: &MetricBreakdown) -> Vec<RefactoringFlag> {
             threshold: HALSTEAD_EFFORT_WARNING,
         });
     }
+    flags
+}
 
-    let irc = metrics.identifier_reference.total_irc;
-    if irc >= IRC_ERROR {
+/// Check identifier reference complexity thresholds.
+fn check_irc_flags(total_irc: f64) -> Vec<RefactoringFlag> {
+    let mut flags = Vec::new();
+    if total_irc >= IRC_ERROR {
         flags.push(RefactoringFlag {
             flag_type: FlagType::HighIdentifierChurn,
             severity: Severity::Error,
-            message: format!("Identifier reference complexity is {irc:.1} (threshold: {IRC_ERROR})"),
+            message: format!("Identifier reference complexity is {total_irc:.1} (threshold: {IRC_ERROR})"),
             suggestion: "Variables are referenced many times across a wide scope. Break this function into smaller functions to shorten variable lifetimes.".to_string(),
-            observed_value: irc,
+            observed_value: total_irc,
             threshold: IRC_ERROR,
         });
-    } else if irc >= IRC_WARNING {
+    } else if total_irc >= IRC_WARNING {
         flags.push(RefactoringFlag {
             flag_type: FlagType::HighIdentifierChurn,
             severity: Severity::Warning,
             message: format!(
-                "Identifier reference complexity is {irc:.1} (threshold: {IRC_WARNING})"
+                "Identifier reference complexity is {total_irc:.1} (threshold: {IRC_WARNING})"
             ),
             suggestion: "Consider shortening variable scopes by extracting sub-functions."
                 .to_string(),
-            observed_value: irc,
+            observed_value: total_irc,
             threshold: IRC_WARNING,
         });
     }
+    flags
+}
 
-    let params = metrics.structural.parameter_count;
-    if params >= PARAMS_ERROR {
+/// Check parameter count thresholds.
+fn check_params_flags(count: u32) -> Vec<RefactoringFlag> {
+    let mut flags = Vec::new();
+    if count >= PARAMS_ERROR {
         flags.push(RefactoringFlag {
             flag_type: FlagType::TooManyParams,
             severity: Severity::Error,
-            message: format!("Function has {params} parameters (threshold: {PARAMS_ERROR})"),
+            message: format!("Function has {count} parameters (threshold: {PARAMS_ERROR})"),
             suggestion:
                 "Group related parameters into an options object: `{ option1, option2, ... }`."
                     .to_string(),
-            observed_value: f64::from(params),
+            observed_value: f64::from(count),
             threshold: f64::from(PARAMS_ERROR),
         });
-    } else if params >= PARAMS_WARNING {
+    } else if count >= PARAMS_WARNING {
         flags.push(RefactoringFlag {
             flag_type: FlagType::TooManyParams,
             severity: Severity::Warning,
-            message: format!("Function has {params} parameters (threshold: {PARAMS_WARNING})"),
+            message: format!("Function has {count} parameters (threshold: {PARAMS_WARNING})"),
             suggestion: "Consider using an options object to reduce parameter count.".to_string(),
-            observed_value: f64::from(params),
+            observed_value: f64::from(count),
             threshold: f64::from(PARAMS_WARNING),
         });
     }
+    flags
+}
 
-    let loc = metrics.structural.loc;
+/// Check lines-of-code thresholds.
+fn check_loc_flags(loc: u32) -> Vec<RefactoringFlag> {
+    let mut flags = Vec::new();
     if loc >= LOC_ERROR {
         flags.push(RefactoringFlag {
             flag_type: FlagType::TooLong,
@@ -166,58 +179,67 @@ pub fn generate_flags(metrics: &MetricBreakdown) -> Vec<RefactoringFlag> {
             threshold: f64::from(LOC_WARNING),
         });
     }
+    flags
+}
 
-    let nesting = metrics.structural.max_nesting_depth;
-    if nesting >= NESTING_ERROR {
+/// Check maximum nesting depth thresholds.
+fn check_nesting_flags(depth: u32) -> Vec<RefactoringFlag> {
+    let mut flags = Vec::new();
+    if depth >= NESTING_ERROR {
         flags.push(RefactoringFlag {
             flag_type: FlagType::DeepNesting,
             severity: Severity::Error,
-            message: format!("Maximum nesting depth is {nesting} (threshold: {NESTING_ERROR})"),
+            message: format!("Maximum nesting depth is {depth} (threshold: {NESTING_ERROR})"),
             suggestion: "Use early returns (guard clauses) to flatten the nesting hierarchy."
                 .to_string(),
-            observed_value: f64::from(nesting),
+            observed_value: f64::from(depth),
             threshold: f64::from(NESTING_ERROR),
         });
-    } else if nesting >= NESTING_WARNING {
+    } else if depth >= NESTING_WARNING {
         flags.push(RefactoringFlag {
             flag_type: FlagType::DeepNesting,
             severity: Severity::Warning,
-            message: format!("Maximum nesting depth is {nesting} (threshold: {NESTING_WARNING})"),
+            message: format!("Maximum nesting depth is {depth} (threshold: {NESTING_WARNING})"),
             suggestion: "Consider inverting conditions to reduce nesting.".to_string(),
-            observed_value: f64::from(nesting),
+            observed_value: f64::from(depth),
             threshold: f64::from(NESTING_WARNING),
         });
     }
+    flags
+}
 
-    let returns = metrics.structural.return_count;
-    if returns >= RETURNS_ERROR {
+/// Check return statement count thresholds.
+fn check_returns_flags(count: u32) -> Vec<RefactoringFlag> {
+    let mut flags = Vec::new();
+    if count >= RETURNS_ERROR {
         flags.push(RefactoringFlag {
             flag_type: FlagType::ExcessiveReturns,
             severity: Severity::Error,
-            message: format!(
-                "Function has {returns} return statements (threshold: {RETURNS_ERROR})"
-            ),
+            message: format!("Function has {count} return statements (threshold: {RETURNS_ERROR})"),
             suggestion:
                 "Consolidate return paths. Consider a single return with a result variable."
                     .to_string(),
-            observed_value: f64::from(returns),
+            observed_value: f64::from(count),
             threshold: f64::from(RETURNS_ERROR),
         });
-    } else if returns >= RETURNS_WARNING {
+    } else if count >= RETURNS_WARNING {
         flags.push(RefactoringFlag {
             flag_type: FlagType::ExcessiveReturns,
             severity: Severity::Warning,
             message: format!(
-                "Function has {returns} return statements (threshold: {RETURNS_WARNING})"
+                "Function has {count} return statements (threshold: {RETURNS_WARNING})"
             ),
             suggestion: "Multiple return paths can make flow harder to follow.".to_string(),
-            observed_value: f64::from(returns),
+            observed_value: f64::from(count),
             threshold: f64::from(RETURNS_WARNING),
         });
     }
+    flags
+}
 
-    let imports = metrics.dependency_coupling.import_count;
-    let api_calls = metrics.dependency_coupling.distinct_api_calls;
+/// Check import count and API call coupling thresholds.
+fn check_coupling_flags(imports: u32, api_calls: u32) -> Vec<RefactoringFlag> {
+    let mut flags = Vec::new();
     if imports >= IMPORT_ERROR || api_calls >= API_CALLS_ERROR {
         flags.push(RefactoringFlag {
             flag_type: FlagType::HighCoupling,
@@ -241,6 +263,27 @@ pub fn generate_flags(metrics: &MetricBreakdown) -> Vec<RefactoringFlag> {
             threshold: f64::from(IMPORT_WARNING),
         });
     }
+    flags
+}
+
+/// Generate all applicable refactoring flags for a function report.
+pub fn generate_flags(metrics: &MetricBreakdown) -> Vec<RefactoringFlag> {
+    let mut flags = Vec::new();
+
+    flags.extend(check_cfc_flags(metrics.cognitive_flow.score));
+    flags.extend(check_dci_flags(
+        metrics.data_complexity.difficulty,
+        metrics.data_complexity.effort,
+    ));
+    flags.extend(check_irc_flags(metrics.identifier_reference.total_irc));
+    flags.extend(check_params_flags(metrics.structural.parameter_count));
+    flags.extend(check_loc_flags(metrics.structural.loc));
+    flags.extend(check_nesting_flags(metrics.structural.max_nesting_depth));
+    flags.extend(check_returns_flags(metrics.structural.return_count));
+    flags.extend(check_coupling_flags(
+        metrics.dependency_coupling.import_count,
+        metrics.dependency_coupling.distinct_api_calls,
+    ));
 
     flags
 }

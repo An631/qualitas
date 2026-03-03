@@ -155,6 +155,90 @@ pub fn analyze_irc_body<'a>(body: &FunctionBody<'a>, source: &str) -> Identifier
 
 use crate::ir::events::QualitasEvent;
 
+/// Mutable accumulator for IRC computation, replacing loose local variables.
+struct IrcState<'a> {
+    entries: HashMap<String, IdentEntry>,
+    nested_fn_depth: u32,
+    source: &'a str,
+}
+
+impl<'a> IrcState<'a> {
+    fn new(source: &'a str) -> Self {
+        Self {
+            entries: HashMap::new(),
+            nested_fn_depth: 0,
+            source,
+        }
+    }
+
+    fn into_result(self) -> IdentifierRefResult {
+        let (hotspots, total_irc) = build_hotspots(self.entries);
+        IdentifierRefResult {
+            total_irc,
+            hotspots,
+        }
+    }
+
+    /// Track nested function boundaries. Returns true if the event was consumed.
+    fn handle_nested_fn_boundary(&mut self, event: &QualitasEvent) -> bool {
+        match event {
+            QualitasEvent::NestedFunctionEnter => {
+                self.nested_fn_depth += 1;
+                true
+            }
+            QualitasEvent::NestedFunctionExit => {
+                self.nested_fn_depth = self.nested_fn_depth.saturating_sub(1);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn is_inside_nested_fn(&self) -> bool {
+        self.nested_fn_depth > 0
+    }
+
+    fn declare_ident(&mut self, name: &str, byte_offset: u32) {
+        let line = crate::parser::ast::byte_to_line(self.source, byte_offset);
+        self.entries.entry(name.to_string()).or_insert(IdentEntry {
+            definition_line: line,
+            last_reference_line: line,
+            reference_count: 0,
+        });
+    }
+
+    fn reference_ident(&mut self, name: &str, byte_offset: u32) {
+        let line = crate::parser::ast::byte_to_line(self.source, byte_offset);
+        if let Some(entry) = self.entries.get_mut(name) {
+            entry.reference_count += 1;
+            if line > entry.last_reference_line {
+                entry.last_reference_line = line;
+            }
+        }
+    }
+}
+
+/// Handle a single IR event, updating the IRC accumulator.
+///
+/// Returns early for events inside nested function boundaries.
+fn process_irc_event(event: &QualitasEvent, state: &mut IrcState<'_>) {
+    if state.handle_nested_fn_boundary(event) {
+        return;
+    }
+    if state.is_inside_nested_fn() {
+        return;
+    }
+    match event {
+        QualitasEvent::IdentDeclaration(ident) => {
+            state.declare_ident(&ident.name, ident.byte_offset);
+        }
+        QualitasEvent::IdentReference(ident) => {
+            state.reference_ident(&ident.name, ident.byte_offset);
+        }
+        _ => {}
+    }
+}
+
 /// Compute IRC from a stream of IR events (language-agnostic).
 ///
 /// `source` is needed to convert byte offsets to line numbers for the scope-span calculation.
@@ -162,45 +246,18 @@ use crate::ir::events::QualitasEvent;
 /// IRC ignores events inside `NestedFunctionEnter`/`NestedFunctionExit` boundaries,
 /// since nested functions have their own identifier scopes.
 pub fn compute_irc(events: &[QualitasEvent], source: &str) -> IdentifierRefResult {
-    let mut entries: HashMap<String, IdentEntry> = HashMap::new();
-    let mut nested_fn_depth: u32 = 0;
+    let mut state = IrcState::new(source);
 
     for event in events {
-        match event {
-            QualitasEvent::NestedFunctionEnter => {
-                nested_fn_depth += 1;
-                continue;
-            }
-            QualitasEvent::NestedFunctionExit => {
-                nested_fn_depth = nested_fn_depth.saturating_sub(1);
-                continue;
-            }
-            _ if nested_fn_depth > 0 => continue,
-            _ => {}
-        }
-        match event {
-            QualitasEvent::IdentDeclaration(ident) => {
-                let line = crate::parser::ast::byte_to_line(source, ident.byte_offset);
-                entries.entry(ident.name.clone()).or_insert(IdentEntry {
-                    definition_line: line,
-                    last_reference_line: line,
-                    reference_count: 0,
-                });
-            }
-            QualitasEvent::IdentReference(ident) => {
-                let line = crate::parser::ast::byte_to_line(source, ident.byte_offset);
-                if let Some(entry) = entries.get_mut(&ident.name) {
-                    entry.reference_count += 1;
-                    if line > entry.last_reference_line {
-                        entry.last_reference_line = line;
-                    }
-                }
-            }
-            _ => {}
-        }
+        process_irc_event(event, &mut state);
     }
 
-    // Same cost formula as visitor-based path
+    state.into_result()
+}
+
+/// Compute per-identifier costs, sort by descending cost, and return the top-10
+/// hotspots along with the total IRC score.
+fn build_hotspots(entries: HashMap<String, IdentEntry>) -> (Vec<IdentifierHotspot>, f64) {
     let mut hotspots: Vec<IdentifierHotspot> = entries
         .into_iter()
         .filter(|(_, e)| e.reference_count > 0)
@@ -227,10 +284,7 @@ pub fn compute_irc(events: &[QualitasEvent], source: &str) -> IdentifierRefResul
     let total_irc: f64 = hotspots.iter().map(|h| h.cost).sum();
     hotspots.truncate(10);
 
-    IdentifierRefResult {
-        total_irc,
-        hotspots,
-    }
+    (hotspots, total_irc)
 }
 
 #[cfg(test)]

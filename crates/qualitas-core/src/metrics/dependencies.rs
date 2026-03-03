@@ -14,27 +14,12 @@ use crate::ir::language::ImportRecord as IrImportRecordType;
 use crate::parser::ast::ImportRecord;
 use crate::types::DependencyCouplingResult;
 
-/// Analyze file-level import dependencies (from IR import records).
-pub fn analyze_file_dependencies_ir(imports: &[IrImportRecordType]) -> DependencyCouplingResult {
-    let mut external_packages: HashSet<String> = HashSet::new();
-    let mut internal_modules: HashSet<String> = HashSet::new();
-
-    for import in imports {
-        if import.is_external {
-            external_packages.insert(root_package_name(&import.source));
-        } else {
-            internal_modules.insert(import.source.clone());
-        }
-    }
-
+/// Build a file-level DC result from import records.
+fn build_file_dc_result(imports: &[IrImportRecordType]) -> DependencyCouplingResult {
+    let (external_packages, internal_modules) = classify_imports(imports);
     let import_count = imports.len() as u32;
     let distinct_sources = (external_packages.len() + internal_modules.len()) as u32;
-    let external_ratio = if import_count > 0 {
-        external_packages.len() as f64 / f64::from(import_count)
-    } else {
-        0.0
-    };
-
+    let external_ratio = compute_external_ratio(external_packages.len(), import_count);
     let raw_score = compute_dc_raw(import_count, external_ratio, 0);
 
     DependencyCouplingResult {
@@ -47,6 +32,11 @@ pub fn analyze_file_dependencies_ir(imports: &[IrImportRecordType]) -> Dependenc
         closure_captures: 0,
         raw_score,
     }
+}
+
+/// Analyze file-level import dependencies (from IR import records).
+pub fn analyze_file_dependencies_ir(imports: &[IrImportRecordType]) -> DependencyCouplingResult {
+    build_file_dc_result(imports)
 }
 
 /// Analyze file-level import dependencies (from parser import records).
@@ -145,26 +135,21 @@ pub fn compute_dc_raw(import_count: u32, external_ratio: f64, distinct_api_calls
 
 use crate::ir::events::QualitasEvent;
 
-/// Compute function-level DC from a stream of IR events (language-agnostic).
-///
-/// `imports` provides file-level import context for computing the full DC score.
-pub fn compute_dc_from_events(
-    events: &[QualitasEvent],
-    imports: &[IrImportRecordType],
-) -> DependencyCouplingResult {
-    let mut api_calls: HashSet<String> = HashSet::new();
-
+/// Collect distinct API call keys from events.
+fn collect_api_calls(events: &[QualitasEvent]) -> HashSet<String> {
+    let mut api_calls = HashSet::new();
     for event in events {
         if let QualitasEvent::ApiCall(call) = event {
-            let key = format!("{}.{}", call.object, call.method);
-            api_calls.insert(key);
+            api_calls.insert(format!("{}.{}", call.object, call.method));
         }
     }
+    api_calls
+}
 
-    // File-level stats from imports
-    let mut external_packages: HashSet<String> = HashSet::new();
-    let mut internal_modules: HashSet<String> = HashSet::new();
-
+/// Classify imports into external packages and internal modules.
+fn classify_imports(imports: &[IrImportRecordType]) -> (HashSet<String>, HashSet<String>) {
+    let mut external_packages = HashSet::new();
+    let mut internal_modules = HashSet::new();
     for import in imports {
         if import.is_external {
             external_packages.insert(root_package_name(&import.source));
@@ -172,15 +157,31 @@ pub fn compute_dc_from_events(
             internal_modules.insert(import.source.clone());
         }
     }
+    (external_packages, internal_modules)
+}
+
+/// Compute the external ratio given external count and total import count.
+fn compute_external_ratio(external_count: usize, import_count: u32) -> f64 {
+    if import_count > 0 {
+        external_count as f64 / f64::from(import_count)
+    } else {
+        0.0
+    }
+}
+
+/// Compute function-level DC from a stream of IR events (language-agnostic).
+///
+/// `imports` provides file-level import context for computing the full DC score.
+pub fn compute_dc_from_events(
+    events: &[QualitasEvent],
+    imports: &[IrImportRecordType],
+) -> DependencyCouplingResult {
+    let api_calls = collect_api_calls(events);
+    let (external_packages, internal_modules) = classify_imports(imports);
 
     let import_count = imports.len() as u32;
     let distinct_sources = (external_packages.len() + internal_modules.len()) as u32;
-    let external_ratio = if import_count > 0 {
-        external_packages.len() as f64 / f64::from(import_count)
-    } else {
-        0.0
-    };
-
+    let external_ratio = compute_external_ratio(external_packages.len(), import_count);
     let distinct_api_calls = api_calls.len() as u32;
     let raw_score = compute_dc_raw(import_count, external_ratio, distinct_api_calls);
 
