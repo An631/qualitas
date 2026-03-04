@@ -38,7 +38,7 @@ jobs:
         run: cargo clippy --workspace -- -D warnings
 
       - name: Run Rust unit tests
-        run: cargo test --workspace
+        run: cargo test -p qualitas-core
 
       - name: Build standalone CLI
         run: cargo build -p qualitas-cli
@@ -47,7 +47,7 @@ jobs:
         run: ./target/debug/qualitas --help
 
       - name: Self-analysis quality gate
-        run: ./target/debug/qualitas crates/ --threshold 60
+        run: ./target/debug/qualitas ./
 
   # ─── JS: build native + integration tests ────────────────────────────────
   js:

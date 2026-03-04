@@ -287,3 +287,192 @@ pub fn generate_flags(metrics: &MetricBreakdown) -> Vec<RefactoringFlag> {
 
     flags
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{
+        CognitiveFlowResult, DataComplexityResult, DependencyCouplingResult, Grade, HalsteadCounts,
+        IdentifierRefResult, MetricBreakdown, StructuralResult,
+    };
+
+    /// Build a MetricBreakdown with all metrics at zero (clean code).
+    fn zero_metrics() -> MetricBreakdown {
+        MetricBreakdown {
+            cognitive_flow: CognitiveFlowResult {
+                score: 0,
+                nesting_penalty: 0,
+                base_increments: 0,
+                async_penalty: 0,
+                max_nesting_depth: 0,
+            },
+            data_complexity: DataComplexityResult {
+                halstead: HalsteadCounts {
+                    distinct_operators: 0,
+                    distinct_operands: 0,
+                    total_operators: 0,
+                    total_operands: 0,
+                },
+                difficulty: 0.0,
+                volume: 0.0,
+                effort: 0.0,
+                raw_score: 0.0,
+            },
+            identifier_reference: IdentifierRefResult {
+                total_irc: 0.0,
+                hotspots: vec![],
+            },
+            dependency_coupling: DependencyCouplingResult {
+                import_count: 0,
+                distinct_sources: 0,
+                external_ratio: 0.0,
+                external_packages: vec![],
+                internal_modules: vec![],
+                distinct_api_calls: 0,
+                closure_captures: 0,
+                raw_score: 0.0,
+            },
+            structural: StructuralResult {
+                loc: 0,
+                total_lines: 0,
+                parameter_count: 0,
+                max_nesting_depth: 0,
+                return_count: 0,
+                method_count: None,
+                raw_score: 0.0,
+            },
+        }
+    }
+
+    // ── Grade boundary tests ──────────────────────────────────────────────
+
+    #[test]
+    fn grade_a_for_high_score() {
+        let grade = grade_from_score(85.0, None);
+        assert_eq!(grade, Grade::A, "Score 85 should be grade A");
+    }
+
+    #[test]
+    fn grade_b_for_medium_score() {
+        let grade = grade_from_score(70.0, None);
+        assert_eq!(grade, Grade::B, "Score 70 should be grade B");
+    }
+
+    #[test]
+    fn grade_f_for_very_low_score() {
+        let grade = grade_from_score(20.0, None);
+        assert_eq!(grade, Grade::F, "Score 20 should be grade F");
+    }
+
+    #[test]
+    fn strict_profile_has_tighter_bounds() {
+        // With strict profile: A requires >= 90, so 85 should be B
+        let grade = grade_from_score(85.0, Some("strict"));
+        assert_eq!(
+            grade,
+            Grade::B,
+            "Score 85 with strict profile should be grade B (not A)",
+        );
+    }
+
+    // ── Flag generation tests ─────────────────────────────────────────────
+
+    #[test]
+    fn no_flags_for_clean_metrics() {
+        let metrics = zero_metrics();
+        let flags = generate_flags(&metrics);
+        assert!(
+            flags.is_empty(),
+            "Expected no flags for zero metrics, got {} flags",
+            flags.len(),
+        );
+    }
+
+    #[test]
+    fn cfc_warning_at_threshold() {
+        let mut metrics = zero_metrics();
+        metrics.cognitive_flow.score = 13; // CFC_WARNING = 13
+        let flags = generate_flags(&metrics);
+        assert!(!flags.is_empty(), "Expected at least one flag for CFC=13",);
+        let cfc_flag = flags
+            .iter()
+            .find(|f| f.flag_type == FlagType::HighCognitiveFlow)
+            .expect("Expected a HighCognitiveFlow flag");
+        assert_eq!(
+            cfc_flag.severity,
+            Severity::Warning,
+            "CFC=13 should be a warning, not {:?}",
+            cfc_flag.severity,
+        );
+    }
+
+    #[test]
+    fn cfc_error_above_threshold() {
+        let mut metrics = zero_metrics();
+        metrics.cognitive_flow.score = 20; // >= CFC_ERROR (19)
+        let flags = generate_flags(&metrics);
+        let cfc_flag = flags
+            .iter()
+            .find(|f| f.flag_type == FlagType::HighCognitiveFlow)
+            .expect("Expected a HighCognitiveFlow flag");
+        assert_eq!(
+            cfc_flag.severity,
+            Severity::Error,
+            "CFC=20 should be an error, not {:?}",
+            cfc_flag.severity,
+        );
+    }
+
+    #[test]
+    fn loc_warning_at_threshold() {
+        let mut metrics = zero_metrics();
+        metrics.structural.loc = 41; // LOC_WARNING = 41
+        let flags = generate_flags(&metrics);
+        let loc_flag = flags
+            .iter()
+            .find(|f| f.flag_type == FlagType::TooLong)
+            .expect("Expected a TooLong flag");
+        assert_eq!(
+            loc_flag.severity,
+            Severity::Warning,
+            "LOC=41 should be a warning, not {:?}",
+            loc_flag.severity,
+        );
+    }
+
+    #[test]
+    fn params_error_at_threshold() {
+        let mut metrics = zero_metrics();
+        metrics.structural.parameter_count = 5; // PARAMS_ERROR = 5
+        let flags = generate_flags(&metrics);
+        let params_flag = flags
+            .iter()
+            .find(|f| f.flag_type == FlagType::TooManyParams)
+            .expect("Expected a TooManyParams flag");
+        assert_eq!(
+            params_flag.severity,
+            Severity::Error,
+            "params=5 should be an error, not {:?}",
+            params_flag.severity,
+        );
+    }
+
+    #[test]
+    fn multiple_flags_for_complex_metrics() {
+        let mut metrics = zero_metrics();
+        metrics.cognitive_flow.score = 20; // triggers CFC error
+        metrics.structural.loc = 65; // triggers LOC error
+        let flags = generate_flags(&metrics);
+        assert!(
+            flags.len() >= 2,
+            "Expected at least 2 flags for high CFC + high LOC, got {}",
+            flags.len(),
+        );
+        let has_cfc = flags
+            .iter()
+            .any(|f| f.flag_type == FlagType::HighCognitiveFlow);
+        let has_loc = flags.iter().any(|f| f.flag_type == FlagType::TooLong);
+        assert!(has_cfc, "Expected a HighCognitiveFlow flag");
+        assert!(has_loc, "Expected a TooLong flag");
+    }
+}

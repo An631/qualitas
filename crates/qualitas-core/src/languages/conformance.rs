@@ -414,4 +414,156 @@ async fn fetch_data(url: &str) -> Result<String, Error> {
             "async.rs",
         );
     }
+
+    // ── Semantic correctness tests ────────────────────────────────────────
+    //
+    // These tests verify ACTUAL metric values produced by the adapters,
+    // not just structural invariants.
+
+    use crate::metrics::cognitive_flow::compute_cfc;
+
+    /// Helper: extract the first function from a TS source and return its events.
+    fn ts_first_fn_events(source: &str) -> Vec<QualitasEvent> {
+        let adapter = TypeScriptAdapter;
+        let extraction = adapter.extract(source, "test.ts").unwrap();
+        assert!(
+            !extraction.functions.is_empty(),
+            "Expected at least one function in source",
+        );
+        extraction.functions.into_iter().next().unwrap().events
+    }
+
+    /// Helper: extract the first function from a TS source.
+    fn ts_first_fn(source: &str) -> crate::ir::language::FunctionExtraction {
+        let adapter = TypeScriptAdapter;
+        let extraction = adapter.extract(source, "test.ts").unwrap();
+        assert!(
+            !extraction.functions.is_empty(),
+            "Expected at least one function in source",
+        );
+        extraction.functions.into_iter().next().unwrap()
+    }
+
+    /// Helper: extract the first function from a Rust source and return its events.
+    fn rs_first_fn_events(source: &str) -> Vec<QualitasEvent> {
+        let adapter = RustAdapter;
+        let extraction = adapter.extract(source, "test.rs").unwrap();
+        // Functions may be top-level or inside an impl block
+        if !extraction.functions.is_empty() {
+            return extraction.functions.into_iter().next().unwrap().events;
+        }
+        // Fall back to first method of first class
+        assert!(
+            !extraction.classes.is_empty() && !extraction.classes[0].methods.is_empty(),
+            "Expected at least one function or method in Rust source",
+        );
+        extraction
+            .classes
+            .into_iter()
+            .next()
+            .unwrap()
+            .methods
+            .into_iter()
+            .next()
+            .unwrap()
+            .events
+    }
+
+    #[test]
+    fn ts_simple_if_has_cfc_1() {
+        let source = "function f(x: any) { if (x) {} }";
+        let events = ts_first_fn_events(source);
+        let cfc = compute_cfc(&events);
+        assert_eq!(
+            cfc.score, 1,
+            "Simple if should have CFC score 1, got {}",
+            cfc.score,
+        );
+    }
+
+    #[test]
+    fn ts_nested_if_has_cfc_at_least_3() {
+        let source = r"
+function f(x: any, y: any) {
+    if (x) {
+        if (y) {
+            return 1;
+        }
+    }
+}
+";
+        let events = ts_first_fn_events(source);
+        let cfc = compute_cfc(&events);
+        assert!(
+            cfc.score >= 3,
+            "Nested if should have CFC score >= 3, got {}",
+            cfc.score,
+        );
+    }
+
+    #[test]
+    fn ts_function_with_5_params_flagged() {
+        let source =
+            "function f(a: number, b: number, c: number, d: number, e: number) { return a; }";
+        let func = ts_first_fn(source);
+        assert_eq!(
+            func.param_count, 5,
+            "Expected param_count=5, got {}",
+            func.param_count,
+        );
+    }
+
+    #[test]
+    fn rs_match_with_3_arms_has_cfc() {
+        let source = r#"
+fn describe(value: Option<i32>) -> &'static str {
+    match value {
+        Some(n) if n > 0 => "positive",
+        Some(_) => "other",
+        None => "nothing",
+    }
+}
+"#;
+        let events = rs_first_fn_events(source);
+        let cfc = compute_cfc(&events);
+        assert!(
+            cfc.score > 0,
+            "Rust match with 3 arms should have CFC > 0, got {}",
+            cfc.score,
+        );
+    }
+
+    #[test]
+    fn rs_for_loop_increments_cfc() {
+        let source = r"
+fn sum(items: &[i32]) -> i32 {
+    let mut total = 0;
+    for item in items {
+        total += item;
+    }
+    total
+}
+";
+        let events = rs_first_fn_events(source);
+        let cfc = compute_cfc(&events);
+        assert!(
+            cfc.score >= 1,
+            "Rust for loop should increment CFC to at least 1, got {}",
+            cfc.score,
+        );
+        // Verify the event stream includes a ForOf control flow event
+        let has_for = events.iter().any(|e| {
+            matches!(
+                e,
+                QualitasEvent::ControlFlow(crate::ir::events::ControlFlowEvent {
+                    kind: crate::ir::events::ControlFlowKind::ForOf,
+                    ..
+                })
+            )
+        });
+        assert!(
+            has_for,
+            "Expected a ForOf control flow event for Rust for loop"
+        );
+    }
 }
