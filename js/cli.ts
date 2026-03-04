@@ -5,8 +5,13 @@ import { renderFileReport, renderProjectReport } from './reporters/text.js';
 import { renderJsonReport } from './reporters/json.js';
 import { renderMarkdownReport, renderMarkdownProjectReport } from './reporters/markdown.js';
 import { statSync } from 'node:fs';
-import { resolve } from 'node:path';
-import type { AnalysisOptions, ProfileName } from './types.js';
+import { resolve, basename } from 'node:path';
+import type {
+  AnalysisOptions,
+  FileQualityReport,
+  ProfileName,
+  ProjectQualityReport,
+} from './types.js';
 import { loadConfig } from './config.js';
 
 program
@@ -18,16 +23,17 @@ program
 
 program
   .argument('<path>', 'File or directory to analyze')
-  .option('-f, --format <format>', 'Output format: text | json | markdown', 'text')
+  .option(
+    '-f, --format <format>',
+    'Output format: text | json | markdown | summary | compact | detail | flagged',
+    'text',
+  )
   .option(
     '-p, --profile <profile>',
     'Weight profile: default | cc-focused | data-focused | strict',
     'default',
   )
   .option('-t, --threshold <number>', 'Exit code 1 if any score is below this threshold', '65')
-  .option('--flagged-only', 'Only show items needing refactoring')
-  .option('--verbose', 'Show metric breakdown per function')
-  .option('--scope <scope>', 'Report scope: function | class | file | module', 'function')
   .option('--include-tests', 'Include test files (*.test.ts, *.spec.ts) in analysis')
   .action(async (targetPath: string, opts) => {
     const resolvedPath = resolve(targetPath);
@@ -42,10 +48,13 @@ program
       includeTests: opts.includeTests ?? config.includeTests ?? false,
     };
 
+    // Resolve format: CLI > config > default
     const format = opts.format !== 'text' ? opts.format : (config.format ?? 'text');
-    const scope = opts.scope !== 'function' ? opts.scope : (config.scope ?? 'function');
-    const verbose = opts.verbose ?? config.verbose ?? false;
-    const flaggedOnly = opts.flaggedOnly ?? config.flaggedOnly ?? false;
+
+    // Derive internal flags from format preset
+    const verbose = format === 'detail';
+    const flaggedOnly = format === 'flagged';
+    const scope = 'function';
 
     const threshold = options.refactoringThreshold ?? 65;
     let belowThreshold = false;
@@ -69,6 +78,8 @@ program
           console.log(renderJsonReport(report));
         } else if (format === 'markdown') {
           console.log(renderMarkdownProjectReport(report));
+        } else if (format === 'compact') {
+          console.log(renderCompactProject(report));
         } else {
           console.log(
             renderProjectReport(report, {
@@ -87,6 +98,8 @@ program
           console.log(renderJsonReport(report));
         } else if (format === 'markdown') {
           console.log(renderMarkdownReport(report));
+        } else if (format === 'compact') {
+          console.log(renderCompactFile(report));
         } else {
           console.log(
             renderFileReport(report, {
@@ -106,3 +119,47 @@ program
   });
 
 program.parse();
+
+// ─── Compact format helpers ────────────────────────────────────────────────
+
+function shortName(filePath: string): string {
+  return basename(filePath);
+}
+
+function countAllFlags(report: FileQualityReport): number {
+  let n = report.flags.length;
+  for (const f of report.functions) {
+    n += f.flags.length;
+  }
+  for (const cls of report.classes) {
+    for (const m of cls.methods) {
+      n += m.flags.length;
+    }
+  }
+  return n;
+}
+
+function renderCompactLine(filePath: string, score: number, grade: string, flagCount: number): string {
+  const flagStr = flagCount > 0 ? `  ${flagCount} flags` : '';
+  return `  ${grade}  ${score.toFixed(1).padStart(5)}  ${filePath}${flagStr}`;
+}
+
+function renderCompactFile(report: FileQualityReport): string {
+  const flags = countAllFlags(report);
+  return renderCompactLine(shortName(report.filePath), report.score, report.grade, flags);
+}
+
+function renderCompactProject(report: ProjectQualityReport): string {
+  const s = report.summary;
+  const files = [...report.files].sort((a, b) => a.score - b.score);
+  const lines: string[] = [
+    `qualitas  score: ${report.score.toFixed(1)}  grade: ${report.grade}  files: ${s.totalFiles}  flagged: ${s.flaggedFiles}`,
+  ];
+
+  for (const file of files) {
+    const flags = countAllFlags(file);
+    lines.push(renderCompactLine(shortName(file.filePath), file.score, file.grade, flags));
+  }
+
+  return lines.join('\n');
+}

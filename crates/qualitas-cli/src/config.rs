@@ -3,8 +3,6 @@ use std::process::Command;
 
 use qualitas_core::types::{AnalysisOptions, QualitasConfig};
 
-use super::reporters::text::TextReporterOptions;
-
 /// Walk up directories from `start_dir` looking for `qualitas.config.js`.
 /// When found, evaluate it with Node and parse the JSON output.
 /// Returns `QualitasConfig::default()` if the file is not found, Node is
@@ -64,15 +62,12 @@ fn evaluate_config(config_path: &Path) -> QualitasConfig {
 }
 
 /// Merge CLI arguments with the loaded config file, using CLI > config > defaults.
-pub fn merge_config(
-    cli: &super::Cli,
-    config: &QualitasConfig,
-) -> (AnalysisOptions, TextReporterOptions, String) {
+/// Returns `(AnalysisOptions, format_string)`.
+/// `TextReporterOptions` is now derived from the format string in main, not here.
+pub fn merge_config(cli: &super::Cli, config: &QualitasConfig) -> (AnalysisOptions, String) {
     let format = resolve_string(cli.format.as_ref(), config.format.as_ref(), "text");
-    let scope = resolve_string(cli.scope.as_ref(), config.scope.as_ref(), "function");
     let options = build_analysis_options(cli, config);
-    let reporter_opts = build_reporter_options(cli, config, scope);
-    (options, reporter_opts, format)
+    (options, format)
 }
 
 fn resolve_string(cli_val: Option<&String>, config_val: Option<&String>, default: &str) -> String {
@@ -106,17 +101,5 @@ fn build_analysis_options(cli: &super::Cli, config: &QualitasConfig) -> Analysis
         include_tests: Some(resolve_bool(cli.include_tests, config.include_tests)),
         extensions: config.extensions.clone(),
         exclude: config.exclude.clone(),
-    }
-}
-
-fn build_reporter_options(
-    cli: &super::Cli,
-    config: &QualitasConfig,
-    scope: String,
-) -> TextReporterOptions {
-    TextReporterOptions {
-        verbose: resolve_bool(cli.verbose, config.verbose),
-        flagged_only: resolve_bool(cli.flagged_only, config.flagged_only),
-        scope,
     }
 }

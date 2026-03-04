@@ -1,3 +1,4 @@
+pub mod compact;
 pub mod json;
 pub mod markdown;
 pub mod summary;

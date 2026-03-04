@@ -342,13 +342,10 @@ pub struct QualitasConfig {
     pub threshold: Option<f64>,
     pub profile: Option<String>,
     pub format: Option<String>,
-    pub scope: Option<String>,
     pub include_tests: Option<bool>,
     pub exclude: Option<Vec<String>>,
     pub extensions: Option<Vec<String>>,
     pub weights: Option<WeightConfig>,
-    pub verbose: Option<bool>,
-    pub flagged_only: Option<bool>,
     pub languages: Option<HashMap<String, LanguageConfig>>,
 }
 

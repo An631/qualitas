@@ -16,6 +16,7 @@ use qualitas_core::types::{
     ProjectQualityReport, ProjectSummary,
 };
 
+use reporters::compact::{render_compact_file, render_compact_project};
 use reporters::json::{render_file_json, render_project_json};
 use reporters::markdown::{render_markdown_project_report, render_markdown_report};
 use reporters::summary::render_executive_summary;
@@ -33,7 +34,7 @@ struct Cli {
     /// File or directory to analyze
     path: String,
 
-    /// Output format: text | json | markdown
+    /// Output format: text | compact | detail | flagged | json | markdown | summary
     #[arg(short = 'f', long)]
     format: Option<String>,
 
@@ -44,18 +45,6 @@ struct Cli {
     /// Exit code 1 if any score is below this threshold
     #[arg(short = 't', long)]
     threshold: Option<f64>,
-
-    /// Only show items needing refactoring
-    #[arg(long)]
-    flagged_only: bool,
-
-    /// Show metric breakdown per function
-    #[arg(long)]
-    verbose: bool,
-
-    /// Report scope: function | class | file | module
-    #[arg(long)]
-    scope: Option<String>,
 
     /// Include test files (*.test.*, *.spec.*) in analysis
     #[arg(long)]
@@ -73,7 +62,32 @@ const DEFAULT_EXCLUDE: &[&str] = &[
     "target",
 ];
 
+// ─── Format → TextReporterOptions mapping ─────────────────────────────────────
+
+fn reporter_opts_for_format(format: &str) -> TextReporterOptions {
+    match format {
+        "detail" => TextReporterOptions {
+            verbose: true,
+            flagged_only: false,
+            scope: "function".to_string(),
+        },
+        "flagged" => TextReporterOptions {
+            verbose: false,
+            flagged_only: true,
+            scope: "function".to_string(),
+        },
+        _ => TextReporterOptions::default(),
+    }
+}
+
 // ─── Extracted helper: handle analysis result and exit ─────────────────────────
+
+fn validate_path(path: &str) {
+    if !Path::new(path).exists() {
+        eprintln!("qualitas: path not found: {path}");
+        process::exit(2);
+    }
+}
 
 fn handle_result(result: Result<bool, String>) -> ! {
     match result {
@@ -90,19 +104,14 @@ fn handle_result(result: Result<bool, String>) -> ! {
 fn main() {
     let cli = Cli::parse();
     let config = config::load_config(&cli.path);
-    let (options, reporter_opts, format) = config::merge_config(&cli, &config);
+    let (options, format) = config::merge_config(&cli, &config);
 
-    let target = Path::new(&cli.path);
+    validate_path(&cli.path);
 
-    if !target.exists() {
-        eprintln!("qualitas: path not found: {}", cli.path);
-        process::exit(2);
-    }
-
-    let result = if target.is_dir() {
-        run_project(&cli, &options, &reporter_opts, &format, &config)
+    let result = if Path::new(&cli.path).is_dir() {
+        run_project(&cli, &options, &format, &config)
     } else {
-        run_file(&cli.path, &options, &reporter_opts, &format)
+        run_file(&cli.path, &options, &format)
     };
 
     handle_result(result);
@@ -110,29 +119,24 @@ fn main() {
 
 // ─── Single-file analysis ─────────────────────────────────────────────────────
 
-fn run_file(
-    path: &str,
-    options: &AnalysisOptions,
-    reporter_opts: &TextReporterOptions,
-    format: &str,
-) -> Result<bool, String> {
+fn run_file(path: &str, options: &AnalysisOptions, format: &str) -> Result<bool, String> {
     let report = analyze_file(path, options)?;
     let threshold = options.refactoring_threshold.unwrap_or(65.0);
     let below = report.score < threshold || report.functions.iter().any(|f| f.score < threshold);
 
-    println!("{}", format_file_output(&report, format, reporter_opts));
+    println!("{}", format_file_output(&report, format));
     Ok(below)
 }
 
-fn format_file_output(
-    report: &FileQualityReport,
-    format: &str,
-    reporter_opts: &TextReporterOptions,
-) -> String {
+fn format_file_output(report: &FileQualityReport, format: &str) -> String {
     match format {
         "json" => render_file_json(report),
         "markdown" => render_markdown_report(report),
-        _ => render_file_report(report, reporter_opts),
+        "compact" => render_compact_file(report),
+        _ => {
+            let opts = reporter_opts_for_format(format);
+            render_file_report(report, &opts)
+        }
     }
 }
 
@@ -163,16 +167,16 @@ fn check_project_threshold(report: &ProjectQualityReport, threshold: f64) -> boo
 
 // ─── Extracted helper: format project output ──────────────────────────────────
 
-fn format_project_output(
-    report: &ProjectQualityReport,
-    format: &str,
-    reporter_opts: &TextReporterOptions,
-) -> String {
+fn format_project_output(report: &ProjectQualityReport, format: &str) -> String {
     match format {
         "json" => render_project_json(report),
         "markdown" => render_markdown_project_report(report),
         "summary" => render_executive_summary(report),
-        _ => render_project_report(report, reporter_opts),
+        "compact" => render_compact_project(report),
+        _ => {
+            let opts = reporter_opts_for_format(format);
+            render_project_report(report, &opts)
+        }
     }
 }
 
@@ -181,7 +185,6 @@ fn format_project_output(
 fn run_project(
     cli: &Cli,
     options: &AnalysisOptions,
-    reporter_opts: &TextReporterOptions,
     format: &str,
     config: &qualitas_core::types::QualitasConfig,
 ) -> Result<bool, String> {
@@ -201,7 +204,7 @@ fn run_project(
 
     let below_threshold = check_project_threshold(&report, threshold);
 
-    println!("{}", format_project_output(&report, format, reporter_opts));
+    println!("{}", format_project_output(&report, format));
     Ok(below_threshold)
 }
 
@@ -291,25 +294,28 @@ fn resolve_adapter_patterns(
     adapter: &dyn qualitas_core::ir::language::LanguageAdapter,
     config: &qualitas_core::types::QualitasConfig,
 ) -> Vec<String> {
-    if let Some(langs) = &config.languages {
-        let key = adapter.name().to_lowercase();
-        // Try matching: "typescript/javascript" matches config key "typescript"
-        if let Some(lang_cfg) = langs.get(&key).or_else(|| {
-            langs
-                .iter()
-                .find(|(k, _)| key.contains(k.as_str()))
-                .map(|(_, v)| v)
-        }) {
-            if let Some(patterns) = &lang_cfg.test_patterns {
-                return patterns.clone();
-            }
-        }
-    }
-    adapter
-        .test_patterns()
-        .iter()
-        .map(|s| (*s).to_string())
-        .collect()
+    find_language_test_patterns(adapter.name(), config).unwrap_or_else(|| {
+        adapter
+            .test_patterns()
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect()
+    })
+}
+
+fn find_language_test_patterns(
+    adapter_name: &str,
+    config: &qualitas_core::types::QualitasConfig,
+) -> Option<Vec<String>> {
+    let langs = config.languages.as_ref()?;
+    let key = adapter_name.to_lowercase();
+    let lang_cfg = langs.get(&key).or_else(|| {
+        langs
+            .iter()
+            .find(|(k, _)| key.contains(k.as_str()))
+            .map(|(_, v)| v)
+    })?;
+    lang_cfg.test_patterns.clone()
 }
 
 fn resolve_excludes(config: &qualitas_core::types::QualitasConfig) -> Vec<String> {
