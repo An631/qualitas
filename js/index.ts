@@ -122,6 +122,42 @@ export async function analyzeProject(
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
+function isExcludedEntry(name: string, exclude: string[]): boolean {
+  return exclude.some((ex) => name === ex || name.startsWith('.'));
+}
+
+function isMatchingSourceFile(
+  name: string,
+  extensions: string[],
+  includeTests: boolean,
+): boolean {
+  const ext = extname(name);
+  if (!extensions.includes(ext)) return false;
+  if (!includeTests && TEST_PATTERNS.some((p) => name.includes(p))) return false;
+  return true;
+}
+
+async function walkDirectory(
+  dir: string,
+  extensions: string[],
+  exclude: string[],
+  includeTests: boolean,
+  results: string[],
+): Promise<void> {
+  const entries = await readdir(dir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    if (isExcludedEntry(entry.name, exclude)) continue;
+
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      await walkDirectory(full, extensions, exclude, includeTests, results);
+    } else if (entry.isFile() && isMatchingSourceFile(entry.name, extensions, includeTests)) {
+      results.push(full);
+    }
+  }
+}
+
 async function collectFiles(
   dir: string,
   extensions: string[],
@@ -129,23 +165,40 @@ async function collectFiles(
   includeTests: boolean,
 ): Promise<string[]> {
   const results: string[] = [];
-  const entries = await readdir(dir, { withFileTypes: true });
-
-  for (const entry of entries) {
-    if (exclude.some((ex) => entry.name === ex || entry.name.startsWith('.'))) continue;
-
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      const sub = await collectFiles(full, extensions, exclude, includeTests);
-      results.push(...sub);
-    } else if (entry.isFile()) {
-      const ext = extname(entry.name);
-      if (!extensions.includes(ext)) continue;
-      if (!includeTests && TEST_PATTERNS.some((p) => entry.name.includes(p))) continue;
-      results.push(full);
-    }
-  }
+  await walkDirectory(dir, extensions, exclude, includeTests, results);
   return results;
+}
+
+function collectAllFunctions(fileReports: FileQualityReport[]): FunctionQualityReport[] {
+  const allFunctions: FunctionQualityReport[] = [];
+  for (const fr of fileReports) {
+    allFunctions.push(...fr.functions);
+    for (const cls of fr.classes) allFunctions.push(...cls.methods);
+  }
+  return allFunctions;
+}
+
+function computeWeightedScore(allFunctions: FunctionQualityReport[]): number {
+  const totalWeight = allFunctions.reduce(
+    (sum, f) => sum + Math.max(f.metrics.structural.loc, 1),
+    0,
+  );
+  return totalWeight > 0
+    ? allFunctions.reduce((sum, f) => sum + f.score * Math.max(f.metrics.structural.loc, 1), 0) /
+        totalWeight
+    : 100;
+}
+
+function computeGradeDistribution(allFunctions: FunctionQualityReport[]): GradeDistribution {
+  const dist: GradeDistribution = { a: 0, b: 0, c: 0, d: 0, f: 0 };
+  for (const f of allFunctions) {
+    dist[f.grade.toLowerCase() as keyof GradeDistribution]++;
+  }
+  return dist;
+}
+
+function findWorstFunctions(allFunctions: FunctionQualityReport[], count: number): FunctionQualityReport[] {
+  return [...allFunctions].sort((a, b) => a.score - b.score).slice(0, count);
 }
 
 function buildProjectReport(
@@ -154,30 +207,8 @@ function buildProjectReport(
   options: AnalysisOptions,
 ): ProjectQualityReport {
   const threshold = options.refactoringThreshold ?? 65;
-
-  const allFunctions: FunctionQualityReport[] = [];
-  for (const fr of fileReports) {
-    allFunctions.push(...fr.functions);
-    for (const cls of fr.classes) allFunctions.push(...cls.methods);
-  }
-
-  const totalWeight = allFunctions.reduce(
-    (sum, f) => sum + Math.max(f.metrics.structural.loc, 1),
-    0,
-  );
-  const weightedScore =
-    totalWeight > 0
-      ? allFunctions.reduce((sum, f) => sum + f.score * Math.max(f.metrics.structural.loc, 1), 0) /
-        totalWeight
-      : 100;
-
-  const dist: GradeDistribution = { a: 0, b: 0, c: 0, d: 0, f: 0 };
-  for (const f of allFunctions) {
-    dist[f.grade.toLowerCase() as keyof GradeDistribution]++;
-  }
-
-  const worstFunctions = [...allFunctions].sort((a, b) => a.score - b.score).slice(0, 10);
-
+  const allFunctions = collectAllFunctions(fileReports);
+  const weightedScore = computeWeightedScore(allFunctions);
   const grade = scoreToGrade(weightedScore);
 
   return {
@@ -193,9 +224,9 @@ function buildProjectReport(
       flaggedFiles: fileReports.filter((f) => f.needsRefactoring).length,
       flaggedFunctions: allFunctions.filter((f) => f.needsRefactoring).length,
       averageScore: weightedScore,
-      gradeDistribution: dist,
+      gradeDistribution: computeGradeDistribution(allFunctions),
     },
-    worstFunctions,
+    worstFunctions: findWorstFunctions(allFunctions, 10),
   };
 }
 

@@ -308,59 +308,78 @@ fn render_pillar_health(fns: &[&FunctionQualityReport]) -> Vec<String> {
 
     let mut lines = vec![section_header("Pillar Health (per function)"), bar_legend];
 
+    let cfc_zone = ZoneThresholds {
+        warn: 13.0,
+        error: 19.0,
+        max_display: 30.0,
+        decimals: 0,
+    };
+    let dci_zone = ZoneThresholds {
+        warn: 26.0,
+        error: 41.0,
+        max_display: 60.0,
+        decimals: 1,
+    };
+    let irc_zone = ZoneThresholds {
+        warn: 41.0,
+        error: 71.0,
+        max_display: 100.0,
+        decimals: 1,
+    };
+    let dc_zone = ZoneThresholds {
+        warn: 10.0,
+        error: 15.0,
+        max_display: 20.0,
+        decimals: 0,
+    };
+    let loc_zone = ZoneThresholds {
+        warn: 41.0,
+        error: 61.0,
+        max_display: 80.0,
+        decimals: 0,
+    };
+    let param_zone = ZoneThresholds {
+        warn: 4.0,
+        error: 5.0,
+        max_display: 8.0,
+        decimals: 0,
+    };
+
     lines.extend(pillar_zone_row(
         "Cognitive Flow",
         fns,
         |f| f64::from(f.metrics.cognitive_flow.score),
-        0,
-        13.0,
-        19.0,
-        30.0,
+        &cfc_zone,
     ));
     lines.extend(pillar_zone_row(
         "Data Complexity",
         fns,
         |f| f.metrics.data_complexity.difficulty,
-        1,
-        26.0,
-        41.0,
-        60.0,
+        &dci_zone,
     ));
     lines.extend(pillar_zone_row(
         "Identifier Refs",
         fns,
         |f| f.metrics.identifier_reference.total_irc,
-        1,
-        41.0,
-        71.0,
-        100.0,
+        &irc_zone,
     ));
     lines.extend(pillar_zone_row(
         "Dep. Coupling",
         fns,
         |f| f64::from(f.metrics.dependency_coupling.import_count),
-        0,
-        10.0,
-        15.0,
-        20.0,
+        &dc_zone,
     ));
     lines.extend(pillar_zone_row(
         "Structural LOC",
         fns,
         |f| f64::from(f.metrics.structural.loc),
-        0,
-        41.0,
-        61.0,
-        80.0,
+        &loc_zone,
     ));
     lines.extend(pillar_zone_row(
         "Structural Params",
         fns,
         |f| f64::from(f.metrics.structural.parameter_count),
-        0,
-        4.0,
-        5.0,
-        8.0,
+        &param_zone,
     ));
 
     lines.push(String::new());
@@ -371,32 +390,46 @@ fn render_pillar_health(fns: &[&FunctionQualityReport]) -> Vec<String> {
 ///
 /// The bar is 30 chars wide. Zone boundaries are proportional to `max_display`.
 /// `warn_at` and `error_at` define the zone boundaries.
+struct ZoneThresholds {
+    warn: f64,
+    error: f64,
+    max_display: f64,
+    decimals: usize,
+}
+
+impl ZoneThresholds {
+    fn fmt_val(&self, v: f64) -> String {
+        match self.decimals {
+            0 => format!("{v:.0}"),
+            1 => format!("{v:.1}"),
+            _ => format!("{v:.2}"),
+        }
+    }
+
+    fn ranges_display(&self) -> String {
+        let f = |v: f64| self.fmt_val(v);
+        format!(
+            "{} {} {}",
+            format!("0\u{2013}{}", f(self.warn - 1.0)).green(),
+            format!("> {}\u{2013}{}", f(self.warn), f(self.error)).yellow(),
+            format!("> {}+", f(self.error)).red(),
+        )
+    }
+}
+
 fn pillar_zone_row(
     name: &str,
     fns: &[&FunctionQualityReport],
     extract: impl Fn(&FunctionQualityReport) -> f64,
-    decimals: usize,
-    warn_at: f64,
-    error_at: f64,
-    max_display: f64,
+    zone: &ZoneThresholds,
 ) -> Vec<String> {
     let vals: Vec<f64> = fns.iter().map(|f| extract(f)).collect();
     let avg_val = avg(&vals);
     let med_val = median(&vals);
-    let bar = build_zone_bar(avg_val, med_val, warn_at, error_at, max_display);
-    let fmt_val = |v: f64| match decimals {
-        0 => format!("{v:.0}"),
-        1 => format!("{v:.1}"),
-        _ => format!("{v:.2}"),
-    };
-    let avg_label = zone_colorize(&format!("{}", fmt_val(avg_val)), avg_val, warn_at, error_at);
-    let med_label = zone_colorize(&fmt_val(med_val).clone(), med_val, warn_at, error_at);
-    let ranges = format!(
-        "{} {} {}",
-        format!("0\u{2013}{}", fmt_val(warn_at - 1.0)).green(),
-        format!("> {}\u{2013}{}", fmt_val(warn_at), fmt_val(error_at)).yellow(),
-        format!("> {}+", fmt_val(error_at)).red(),
-    );
+    let bar = build_zone_bar(avg_val, med_val, zone);
+    let avg_label = zone_colorize(&zone.fmt_val(avg_val), avg_val, zone.warn, zone.error);
+    let med_label = zone_colorize(&zone.fmt_val(med_val), med_val, zone.warn, zone.error);
+    let ranges = zone.ranges_display();
     vec![format!(
         "  {:<24} {}  \u{25b2} avg:{avg_label} \u{25cf} med:{med_label} | Ranges: [{ranges}]",
         name, bar
@@ -413,30 +446,31 @@ fn zone_colorize(text: &str, value: f64, warn: f64, error: f64) -> String {
     }
 }
 
-fn build_zone_bar(avg_val: f64, med_val: f64, warn: f64, error: f64, max: f64) -> String {
+fn build_zone_bar(avg_val: f64, med_val: f64, zone: &ZoneThresholds) -> String {
     let width = 30usize;
-    let warn_pos = ((warn / max) * width as f64).round() as usize;
-    let error_pos = ((error / max) * width as f64).round() as usize;
-    let avg_pos = ((avg_val / max).min(1.0) * width as f64).round() as usize;
-    let med_pos = ((med_val / max).min(1.0) * width as f64).round() as usize;
-
-    let mut chars: Vec<String> = Vec::with_capacity(width);
-    for i in 0..width {
-        let base = if i < warn_pos {
-            "\u{2500}".green().to_string()
-        } else if i < error_pos {
-            "\u{2500}".yellow().to_string()
-        } else {
-            "\u{2500}".red().to_string()
-        };
-        chars.push(base);
-    }
-
-    // Place markers (median first so avg overwrites if same position)
-    place_marker(&mut chars, med_pos, width, "\u{25cf}");
-    place_marker(&mut chars, avg_pos, width, "\u{25b2}");
-
+    let mut chars = build_zone_chars(width, zone);
+    let to_pos = |v: f64| ((v / zone.max_display).min(1.0) * width as f64).round() as usize;
+    place_marker(&mut chars, to_pos(med_val), width, "\u{25cf}");
+    place_marker(&mut chars, to_pos(avg_val), width, "\u{25b2}");
     chars.join("")
+}
+
+fn build_zone_chars(width: usize, zone: &ZoneThresholds) -> Vec<String> {
+    let warn_pos = ((zone.warn / zone.max_display) * width as f64).round() as usize;
+    let error_pos = ((zone.error / zone.max_display) * width as f64).round() as usize;
+    (0..width)
+        .map(|i| zone_char_color(i, warn_pos, error_pos))
+        .collect()
+}
+
+fn zone_char_color(i: usize, warn_pos: usize, error_pos: usize) -> String {
+    if i < warn_pos {
+        "\u{2500}".green().to_string()
+    } else if i < error_pos {
+        "\u{2500}".yellow().to_string()
+    } else {
+        "\u{2500}".red().to_string()
+    }
 }
 
 fn place_marker(chars: &mut [String], pos: usize, width: usize, symbol: &str) {

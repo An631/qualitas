@@ -51,9 +51,19 @@ function renderFlag(flag: RefactoringFlag, indent = '    '): string {
   return `${indent}${sev} ${flag.message}\n${indent}       ${pc.dim('→')} ${flag.suggestion}`;
 }
 
+function renderFlagList(flags: RefactoringFlag[]): string[] {
+  if (flags.length === 0) return [];
+  const lines: string[] = [];
+  lines.push('    ' + pc.dim('Flags:'));
+  for (const flag of flags) {
+    lines.push(renderFlag(flag));
+  }
+  return lines;
+}
+
 // ─── Function row ─────────────────────────────────────────────────────────────
 
-function renderFunction(fn: FunctionQualityReport, opts: TextReporterOptions): string {
+function renderFunctionHeader(fn: FunctionQualityReport): string {
   const icon = fn.needsRefactoring ? pc.red('✗') : pc.green('✓');
   const grade = gradeColor(fn.grade, `[${fn.grade}]`);
   const score = fn.needsRefactoring
@@ -66,25 +76,28 @@ function renderFunction(fn: FunctionQualityReport, opts: TextReporterOptions): s
     line += pc.dim('  ← needs refactoring');
   }
 
-  const lines = [line];
+  return line;
+}
+
+function renderVerboseMetrics(fn: FunctionQualityReport): string {
+  const m = fn.metrics;
+  return (
+    `      CFC: ${m.cognitiveFlow.score} (${scoreToGrade(100 - m.cognitiveFlow.score * 4)})  ` +
+    `DCI: ${m.dataComplexity.difficulty.toFixed(1)} (${scoreToGrade(100 - m.dataComplexity.difficulty)})  ` +
+    `IRC: ${m.identifierReference.totalIrc.toFixed(1)}  ` +
+    `Params: ${m.structural.parameterCount}  ` +
+    `LOC: ${m.structural.loc}`
+  );
+}
+
+function renderFunction(fn: FunctionQualityReport, opts: TextReporterOptions): string {
+  const lines = [renderFunctionHeader(fn)];
 
   if (opts.verbose) {
-    const m = fn.metrics;
-    lines.push(
-      `      CFC: ${m.cognitiveFlow.score} (${scoreToGrade(100 - m.cognitiveFlow.score * 4)})  ` +
-        `DCI: ${m.dataComplexity.difficulty.toFixed(1)} (${scoreToGrade(100 - m.dataComplexity.difficulty)})  ` +
-        `IRC: ${m.identifierReference.totalIrc.toFixed(1)}  ` +
-        `Params: ${m.structural.parameterCount}  ` +
-        `LOC: ${m.structural.loc}`,
-    );
+    lines.push(renderVerboseMetrics(fn));
   }
 
-  if (fn.flags.length > 0) {
-    lines.push('    ' + pc.dim('Flags:'));
-    for (const flag of fn.flags) {
-      lines.push(renderFlag(flag));
-    }
-  }
+  lines.push(...renderFlagList(fn.flags));
 
   return lines.join('\n');
 }
@@ -102,64 +115,74 @@ function renderFileSummaryLine(report: FileQualityReport): string {
   );
 }
 
+function renderFileHeader(report: FileQualityReport): string[] {
+  const gradeStr = gradeColor(report.grade, report.grade);
+  return [
+    '',
+    pc.bold(`qualitas-ts: ${report.filePath}`),
+    `${scoreBar(report.score)}  score: ${report.score.toFixed(1)}  grade: ${gradeStr}`,
+    '',
+  ];
+}
+
+function renderClassScopeSection(report: FileQualityReport, opts: TextReporterOptions): string[] {
+  const lines: string[] = [];
+  for (const cls of report.classes) {
+    if (opts.flaggedOnly && !cls.needsRefactoring) continue;
+    lines.push(
+      `  ${pc.cyan(`class ${cls.name}`)}  ${gradeColor(cls.grade, cls.grade)}  score: ${cls.score.toFixed(1)}`,
+    );
+    lines.push(...renderFlagList(cls.flags));
+  }
+  return lines;
+}
+
+function renderFunctionScopeSection(report: FileQualityReport, opts: TextReporterOptions): string[] {
+  const lines: string[] = [];
+
+  const fns = opts.flaggedOnly
+    ? report.functions.filter((f) => f.needsRefactoring)
+    : report.functions;
+
+  for (const fn of fns) {
+    lines.push(renderFunction(fn, opts));
+  }
+
+  for (const cls of report.classes) {
+    const classFns = opts.flaggedOnly
+      ? cls.methods.filter((m) => m.needsRefactoring)
+      : cls.methods;
+
+    if (opts.flaggedOnly && classFns.length === 0) continue;
+
+    lines.push('');
+    lines.push(
+      `  ${pc.cyan(`class ${cls.name}`)}  ${gradeColor(cls.grade, cls.grade)}  score: ${cls.score.toFixed(1)}`,
+    );
+    for (const m of classFns) {
+      lines.push(renderFunction(m, opts));
+    }
+  }
+
+  return lines;
+}
+
 export function renderFileReport(
   report: FileQualityReport,
   opts: TextReporterOptions = {},
 ): string {
-  const lines: string[] = [];
-  const gradeStr = gradeColor(report.grade, report.grade);
+  const lines = renderFileHeader(report);
   const scope = opts.scope ?? 'function';
 
-  lines.push('');
-  lines.push(pc.bold(`qualitas-ts: ${report.filePath}`));
-  lines.push(`${scoreBar(report.score)}  score: ${report.score.toFixed(1)}  grade: ${gradeStr}`);
-  lines.push('');
-
   if (scope === 'file') {
-    // File-level only: show score header and summary, no function/class detail
     lines.push(renderFileSummaryLine(report));
     return lines.join('\n');
   }
 
   if (scope === 'class') {
-    // Class-level: show class aggregates and their flags, skip standalone functions
-    for (const cls of report.classes) {
-      if (opts.flaggedOnly && !cls.needsRefactoring) continue;
-      lines.push(
-        `  ${pc.cyan(`class ${cls.name}`)}  ${gradeColor(cls.grade, cls.grade)}  score: ${cls.score.toFixed(1)}`,
-      );
-      if (cls.flags.length > 0) {
-        lines.push('    ' + pc.dim('Flags:'));
-        for (const flag of cls.flags) {
-          lines.push(renderFlag(flag));
-        }
-      }
-    }
+    lines.push(...renderClassScopeSection(report, opts));
   } else {
-    // scope: 'function' (default) — full per-function detail
-    const fns = opts.flaggedOnly
-      ? report.functions.filter((f) => f.needsRefactoring)
-      : report.functions;
-
-    for (const fn of fns) {
-      lines.push(renderFunction(fn, opts));
-    }
-
-    for (const cls of report.classes) {
-      const classFns = opts.flaggedOnly
-        ? cls.methods.filter((m) => m.needsRefactoring)
-        : cls.methods;
-
-      if (opts.flaggedOnly && classFns.length === 0) continue;
-
-      lines.push('');
-      lines.push(
-        `  ${pc.cyan(`class ${cls.name}`)}  ${gradeColor(cls.grade, cls.grade)}  score: ${cls.score.toFixed(1)}`,
-      );
-      for (const m of classFns) {
-        lines.push(renderFunction(m, opts));
-      }
-    }
+    lines.push(...renderFunctionScopeSection(report, opts));
   }
 
   lines.push('');
@@ -170,53 +193,58 @@ export function renderFileReport(
 
 // ─── Project report ───────────────────────────────────────────────────────────
 
+function renderProjectHeader(report: ProjectQualityReport): string[] {
+  const s = report.summary;
+  return [
+    '',
+    pc.bold(`qualitas-ts project: ${report.dirPath}`),
+    `${scoreBar(report.score)}  score: ${report.score.toFixed(1)}  grade: ${gradeColor(report.grade, report.grade)}`,
+    '',
+    `  ${s.totalFiles} files  |  ${s.totalFunctions} functions  |  ` +
+      pc.red(`${s.flaggedFunctions} need refactoring`),
+    `  Grades: ${pc.green('A:' + s.gradeDistribution.a)}  ${pc.cyan('B:' + s.gradeDistribution.b)}  ` +
+      `${pc.yellow('C:' + s.gradeDistribution.c)}  ${pc.red('D:' + s.gradeDistribution.d)}  ` +
+      `${pc.bgRed(pc.white('F:' + s.gradeDistribution.f))}`,
+  ];
+}
+
+function renderWorstFunctionsSection(worstFunctions: FunctionQualityReport[]): string[] {
+  if (worstFunctions.length === 0) return [];
+  const lines: string[] = ['', pc.bold('  Worst functions:')];
+  for (const fn of worstFunctions.slice(0, 5)) {
+    lines.push(
+      `    ${pc.red('✗')} ${fn.location.file}  ${pc.bold(fn.name)}()  score: ${fn.score.toFixed(0)}  ${gradeColor(fn.grade, fn.grade)}`,
+    );
+  }
+  return lines;
+}
+
+function renderProjectFileDetails(report: ProjectQualityReport, opts: TextReporterOptions): string[] {
+  if (!opts.verbose && opts.flaggedOnly) return [];
+  const lines: string[] = [''];
+  for (const file of report.files) {
+    if (opts.flaggedOnly && !file.needsRefactoring) continue;
+    lines.push(renderFileReport(file, opts));
+  }
+  return lines;
+}
+
 export function renderProjectReport(
   report: ProjectQualityReport,
   opts: TextReporterOptions = {},
 ): string {
-  const lines: string[] = [];
+  const lines = renderProjectHeader(report);
   const scope = opts.scope ?? 'function';
 
-  lines.push('');
-  lines.push(pc.bold(`qualitas-ts project: ${report.dirPath}`));
-  lines.push(
-    `${scoreBar(report.score)}  score: ${report.score.toFixed(1)}  grade: ${gradeColor(report.grade, report.grade)}`,
-  );
-  lines.push('');
-
-  const s = report.summary;
-  lines.push(
-    `  ${s.totalFiles} files  |  ${s.totalFunctions} functions  |  ` +
-      pc.red(`${s.flaggedFunctions} need refactoring`),
-  );
-  lines.push(
-    `  Grades: ${pc.green('A:' + s.gradeDistribution.a)}  ${pc.cyan('B:' + s.gradeDistribution.b)}  ` +
-      `${pc.yellow('C:' + s.gradeDistribution.c)}  ${pc.red('D:' + s.gradeDistribution.d)}  ` +
-      `${pc.bgRed(pc.white('F:' + s.gradeDistribution.f))}`,
-  );
-
   if (scope === 'module') {
-    // Module-level: project summary only, no per-file detail
     return lines.join('\n');
   }
 
-  if (report.worstFunctions.length > 0 && scope === 'function') {
-    lines.push('');
-    lines.push(pc.bold('  Worst functions:'));
-    for (const fn of report.worstFunctions.slice(0, 5)) {
-      lines.push(
-        `    ${pc.red('✗')} ${fn.location.file}  ${pc.bold(fn.name)}()  score: ${fn.score.toFixed(0)}  ${gradeColor(fn.grade, fn.grade)}`,
-      );
-    }
+  if (scope === 'function') {
+    lines.push(...renderWorstFunctionsSection(report.worstFunctions));
   }
 
-  if (opts.verbose || !opts.flaggedOnly) {
-    lines.push('');
-    for (const file of report.files) {
-      if (opts.flaggedOnly && !file.needsRefactoring) continue;
-      lines.push(renderFileReport(file, opts));
-    }
-  }
+  lines.push(...renderProjectFileDetails(report, opts));
 
   return lines.join('\n');
 }

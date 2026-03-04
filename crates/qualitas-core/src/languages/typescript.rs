@@ -43,7 +43,15 @@ impl LanguageAdapter for TypeScriptAdapter {
     }
 
     fn test_patterns(&self) -> &[&str] {
-        &[".test.", ".spec.", ".playwright-test."]
+        &[
+            ".test.",
+            ".spec.",
+            ".playwright-test.",
+            "tests/",
+            "tests\\",
+            "fixtures/",
+            "fixtures\\",
+        ]
     }
 
     fn extract(&self, source: &str, file_path: &str) -> Result<FileExtraction, String> {
