@@ -308,82 +308,56 @@ fn render_pillar_health(fns: &[&FunctionQualityReport]) -> Vec<String> {
 
     let mut lines = vec![section_header("Pillar Health (per function)"), bar_legend];
 
-    let cfc_zone = ZoneThresholds {
-        warn: 13.0,
-        error: 19.0,
-        max_display: 30.0,
-        decimals: 0,
-    };
-    let dci_zone = ZoneThresholds {
-        warn: 26.0,
-        error: 41.0,
-        max_display: 60.0,
-        decimals: 1,
-    };
-    let irc_zone = ZoneThresholds {
-        warn: 41.0,
-        error: 71.0,
-        max_display: 100.0,
-        decimals: 1,
-    };
-    let dc_zone = ZoneThresholds {
-        warn: 10.0,
-        error: 15.0,
-        max_display: 20.0,
-        decimals: 0,
-    };
-    let loc_zone = ZoneThresholds {
-        warn: 41.0,
-        error: 61.0,
-        max_display: 80.0,
-        decimals: 0,
-    };
-    let param_zone = ZoneThresholds {
-        warn: 4.0,
-        error: 5.0,
-        max_display: 8.0,
-        decimals: 0,
-    };
+    lines.extend(render_all_pillar_rows(fns));
+    lines.push(String::new());
+    lines
+}
 
-    lines.extend(pillar_zone_row(
+fn render_all_pillar_rows(fns: &[&FunctionQualityReport]) -> Vec<String> {
+    let z = |w, e, m, d| ZoneThresholds {
+        warn: w,
+        error: e,
+        max_display: m,
+        decimals: d,
+    };
+    let mut rows = Vec::new();
+    rows.extend(pillar_zone_row(
         "Cognitive Flow",
         fns,
         |f| f64::from(f.metrics.cognitive_flow.score),
-        &cfc_zone,
+        &z(13.0, 19.0, 30.0, 0),
     ));
-    lines.extend(pillar_zone_row(
+    rows.extend(pillar_zone_row(
         "Data Complexity",
         fns,
         |f| f.metrics.data_complexity.difficulty,
-        &dci_zone,
+        &z(26.0, 41.0, 60.0, 1),
     ));
-    lines.extend(pillar_zone_row(
+    rows.extend(pillar_zone_row(
         "Identifier Refs",
         fns,
         |f| f.metrics.identifier_reference.total_irc,
-        &irc_zone,
+        &z(41.0, 71.0, 100.0, 1),
     ));
-    lines.extend(pillar_zone_row(
+    rows.extend(pillar_zone_row(
         "Dep. Coupling",
         fns,
         |f| f64::from(f.metrics.dependency_coupling.import_count),
-        &dc_zone,
+        &z(10.0, 15.0, 20.0, 0),
     ));
-    lines.extend(pillar_zone_row(
+    rows.extend(pillar_zone_row(
         "Structural LOC",
         fns,
         |f| f64::from(f.metrics.structural.loc),
-        &loc_zone,
+        &z(41.0, 61.0, 80.0, 0),
     ));
-    lines.extend(pillar_zone_row(
+    rows.extend(pillar_zone_row(
         "Structural Params",
         fns,
         |f| f64::from(f.metrics.structural.parameter_count),
-        &param_zone,
+        &z(4.0, 5.0, 8.0, 0),
     ));
-
-    lines.push(String::new());
-    lines
+    rows
 }
 
 /// Render a pillar as a colored zone bar with avg/median markers.

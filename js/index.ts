@@ -126,35 +126,43 @@ function isExcludedEntry(name: string, exclude: string[]): boolean {
   return exclude.some((ex) => name === ex || name.startsWith('.'));
 }
 
-function isMatchingSourceFile(
-  name: string,
-  extensions: string[],
-  includeTests: boolean,
-): boolean {
+function isMatchingSourceFile(name: string, extensions: string[], includeTests: boolean): boolean {
   const ext = extname(name);
   if (!extensions.includes(ext)) return false;
   if (!includeTests && TEST_PATTERNS.some((p) => name.includes(p))) return false;
   return true;
 }
 
-async function walkDirectory(
-  dir: string,
-  extensions: string[],
-  exclude: string[],
-  includeTests: boolean,
-  results: string[],
-): Promise<void> {
+interface WalkConfig {
+  extensions: string[];
+  exclude: string[];
+  includeTests: boolean;
+}
+
+async function walkDirectory(dir: string, config: WalkConfig, results: string[]): Promise<void> {
   const entries = await readdir(dir, { withFileTypes: true });
 
   for (const entry of entries) {
-    if (isExcludedEntry(entry.name, exclude)) continue;
+    await processEntry(dir, entry, config, results);
+  }
+}
 
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      await walkDirectory(full, extensions, exclude, includeTests, results);
-    } else if (entry.isFile() && isMatchingSourceFile(entry.name, extensions, includeTests)) {
-      results.push(full);
-    }
+async function processEntry(
+  dir: string,
+  entry: { name: string; isDirectory(): boolean; isFile(): boolean },
+  config: WalkConfig,
+  results: string[],
+): Promise<void> {
+  if (isExcludedEntry(entry.name, config.exclude)) return;
+
+  const full = join(dir, entry.name);
+  if (entry.isDirectory()) {
+    await walkDirectory(full, config, results);
+  } else if (
+    entry.isFile() &&
+    isMatchingSourceFile(entry.name, config.extensions, config.includeTests)
+  ) {
+    results.push(full);
   }
 }
 
@@ -165,7 +173,7 @@ async function collectFiles(
   includeTests: boolean,
 ): Promise<string[]> {
   const results: string[] = [];
-  await walkDirectory(dir, extensions, exclude, includeTests, results);
+  await walkDirectory(dir, { extensions, exclude, includeTests }, results);
   return results;
 }
 
@@ -197,7 +205,10 @@ function computeGradeDistribution(allFunctions: FunctionQualityReport[]): GradeD
   return dist;
 }
 
-function findWorstFunctions(allFunctions: FunctionQualityReport[], count: number): FunctionQualityReport[] {
+function findWorstFunctions(
+  allFunctions: FunctionQualityReport[],
+  count: number,
+): FunctionQualityReport[] {
   return [...allFunctions].sort((a, b) => a.score - b.score).slice(0, count);
 }
 

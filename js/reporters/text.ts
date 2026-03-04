@@ -1,5 +1,6 @@
 import pc from 'picocolors';
 import type {
+  ClassQualityReport,
   FileQualityReport,
   FunctionQualityReport,
   Grade,
@@ -137,34 +138,33 @@ function renderClassScopeSection(report: FileQualityReport, opts: TextReporterOp
   return lines;
 }
 
-function renderFunctionScopeSection(report: FileQualityReport, opts: TextReporterOptions): string[] {
-  const lines: string[] = [];
-
+function renderFunctionScopeSection(
+  report: FileQualityReport,
+  opts: TextReporterOptions,
+): string[] {
   const fns = opts.flaggedOnly
     ? report.functions.filter((f) => f.needsRefactoring)
     : report.functions;
 
-  for (const fn of fns) {
-    lines.push(renderFunction(fn, opts));
-  }
+  const lines = fns.map((fn) => renderFunction(fn, opts));
 
   for (const cls of report.classes) {
-    const classFns = opts.flaggedOnly
-      ? cls.methods.filter((m) => m.needsRefactoring)
-      : cls.methods;
-
-    if (opts.flaggedOnly && classFns.length === 0) continue;
-
-    lines.push('');
-    lines.push(
-      `  ${pc.cyan(`class ${cls.name}`)}  ${gradeColor(cls.grade, cls.grade)}  score: ${cls.score.toFixed(1)}`,
-    );
-    for (const m of classFns) {
-      lines.push(renderFunction(m, opts));
-    }
+    lines.push(...renderClassMethods(cls, opts));
   }
 
   return lines;
+}
+
+function renderClassMethods(cls: ClassQualityReport, opts: TextReporterOptions): string[] {
+  const methods = opts.flaggedOnly ? cls.methods.filter((m) => m.needsRefactoring) : cls.methods;
+
+  if (opts.flaggedOnly && methods.length === 0) return [];
+
+  return [
+    '',
+    `  ${pc.cyan(`class ${cls.name}`)}  ${gradeColor(cls.grade, cls.grade)}  score: ${cls.score.toFixed(1)}`,
+    ...methods.map((m) => renderFunction(m, opts)),
+  ];
 }
 
 export function renderFileReport(
@@ -219,7 +219,10 @@ function renderWorstFunctionsSection(worstFunctions: FunctionQualityReport[]): s
   return lines;
 }
 
-function renderProjectFileDetails(report: ProjectQualityReport, opts: TextReporterOptions): string[] {
+function renderProjectFileDetails(
+  report: ProjectQualityReport,
+  opts: TextReporterOptions,
+): string[] {
   if (!opts.verbose && opts.flaggedOnly) return [];
   const lines: string[] = [''];
   for (const file of report.files) {
