@@ -196,6 +196,19 @@ export interface AnalysisOptions {
   exclude?: string[];
 }
 
+export interface QualitasConfig {
+  threshold?: number;
+  profile?: ProfileName;
+  format?: string;
+  scope?: string;
+  includeTests?: boolean;
+  exclude?: string[];
+  extensions?: string[];
+  weights?: Partial<WeightConfig>;
+  verbose?: boolean;
+  flaggedOnly?: boolean;
+}
+
 /** Compact result returned by `quickScore()` — faster than full `analyzeSource()`. */
 export interface QuickScore {
   score: number;

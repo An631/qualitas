@@ -5,7 +5,9 @@ import { renderFileReport, renderProjectReport } from './reporters/text.js';
 import { renderJsonReport } from './reporters/json.js';
 import { renderMarkdownReport, renderMarkdownProjectReport } from './reporters/markdown.js';
 import { statSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { AnalysisOptions, ProfileName } from './types.js';
+import { loadConfig } from './config.js';
 
 program
   .name('qualitas')
@@ -28,13 +30,24 @@ program
   .option('--scope <scope>', 'Report scope: function | class | file | module', 'function')
   .option('--include-tests', 'Include test files (*.test.ts, *.spec.ts) in analysis')
   .action(async (targetPath: string, opts) => {
+    const resolvedPath = resolve(targetPath);
+    const config = loadConfig(resolvedPath);
+
     const options: AnalysisOptions = {
-      profile: opts.profile as ProfileName,
-      refactoringThreshold: parseFloat(opts.threshold),
-      includeTests: opts.includeTests ?? false,
+      profile: (opts.profile !== 'default'
+        ? opts.profile
+        : (config.profile ?? 'default')) as ProfileName,
+      refactoringThreshold:
+        opts.threshold !== '65' ? parseFloat(opts.threshold) : (config.threshold ?? 65),
+      includeTests: opts.includeTests ?? config.includeTests ?? false,
     };
 
-    const threshold = parseFloat(opts.threshold);
+    const format = opts.format !== 'text' ? opts.format : (config.format ?? 'text');
+    const scope = opts.scope !== 'function' ? opts.scope : (config.scope ?? 'function');
+    const verbose = opts.verbose ?? config.verbose ?? false;
+    const flaggedOnly = opts.flaggedOnly ?? config.flaggedOnly ?? false;
+
+    const threshold = options.refactoringThreshold ?? 65;
     let belowThreshold = false;
 
     try {
@@ -52,16 +65,16 @@ program
           report.score < threshold ||
           report.files.some((f) => f.functions.some((fn) => fn.score < threshold));
 
-        if (opts.format === 'json') {
+        if (format === 'json') {
           console.log(renderJsonReport(report));
-        } else if (opts.format === 'markdown') {
+        } else if (format === 'markdown') {
           console.log(renderMarkdownProjectReport(report));
         } else {
           console.log(
             renderProjectReport(report, {
-              verbose: opts.verbose,
-              flaggedOnly: opts.flaggedOnly,
-              scope: opts.scope,
+              verbose,
+              flaggedOnly,
+              scope,
             }),
           );
         }
@@ -70,16 +83,16 @@ program
         belowThreshold =
           report.score < threshold || report.functions.some((fn) => fn.score < threshold);
 
-        if (opts.format === 'json') {
+        if (format === 'json') {
           console.log(renderJsonReport(report));
-        } else if (opts.format === 'markdown') {
+        } else if (format === 'markdown') {
           console.log(renderMarkdownReport(report));
         } else {
           console.log(
             renderFileReport(report, {
-              verbose: opts.verbose,
-              flaggedOnly: opts.flaggedOnly,
-              scope: opts.scope,
+              verbose,
+              flaggedOnly,
+              scope,
             }),
           );
         }

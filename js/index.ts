@@ -10,6 +10,7 @@ import type {
   ProjectQualityReport,
   QuickScore,
 } from './types.js';
+import { loadConfig, mergeOptions } from './config.js';
 
 // ─── Native binding loader ────────────────────────────────────────────────────
 
@@ -110,14 +111,17 @@ export async function analyzeProject(
   dirPath: string,
   options: AnalysisOptions = {},
 ): Promise<ProjectQualityReport> {
-  const extensions = options.extensions ?? DEFAULT_EXTENSIONS;
-  const excludePatterns = [...DEFAULT_EXCLUDE, ...(options.exclude ?? [])];
-  const includeTests = options.includeTests ?? false;
+  const config = loadConfig(resolve(dirPath));
+  const mergedOpts = mergeOptions(config, options);
+
+  const extensions = mergedOpts.extensions ?? DEFAULT_EXTENSIONS;
+  const excludePatterns = [...DEFAULT_EXCLUDE, ...(mergedOpts.exclude ?? [])];
+  const includeTests = mergedOpts.includeTests ?? false;
 
   const files = await collectFiles(resolve(dirPath), extensions, excludePatterns, includeTests);
-  const fileReports = await Promise.all(files.map((f) => analyzeFile(f, options)));
+  const fileReports = await Promise.all(files.map((f) => analyzeFile(f, mergedOpts)));
 
-  return buildProjectReport(dirPath, fileReports, options);
+  return buildProjectReport(dirPath, fileReports, mergedOpts);
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────

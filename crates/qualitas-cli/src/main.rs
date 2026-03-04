@@ -1,3 +1,4 @@
+mod config;
 mod reporters;
 
 use std::path::Path;
@@ -33,16 +34,16 @@ struct Cli {
     path: String,
 
     /// Output format: text | json | markdown
-    #[arg(short = 'f', long, default_value = "text")]
-    format: String,
+    #[arg(short = 'f', long)]
+    format: Option<String>,
 
     /// Weight profile: default | cc-focused | data-focused | strict
-    #[arg(short = 'p', long, default_value = "default")]
-    profile: String,
+    #[arg(short = 'p', long)]
+    profile: Option<String>,
 
     /// Exit code 1 if any score is below this threshold
-    #[arg(short = 't', long, default_value = "65")]
-    threshold: f64,
+    #[arg(short = 't', long)]
+    threshold: Option<f64>,
 
     /// Only show items needing refactoring
     #[arg(long)]
@@ -53,8 +54,8 @@ struct Cli {
     verbose: bool,
 
     /// Report scope: function | class | file | module
-    #[arg(long, default_value = "function")]
-    scope: String,
+    #[arg(long)]
+    scope: Option<String>,
 
     /// Include test files (*.test.*, *.spec.*) in analysis
     #[arg(long)]
@@ -72,31 +73,6 @@ const DEFAULT_EXCLUDE: &[&str] = &[
     "target",
 ];
 
-// ─── Extracted helper: build CLI options from parsed args ─────────────────────
-
-fn build_cli_options(cli: &Cli) -> (AnalysisOptions, TextReporterOptions) {
-    let options = AnalysisOptions {
-        profile: if cli.profile == "default" {
-            None
-        } else {
-            Some(cli.profile.clone())
-        },
-        weights: None,
-        refactoring_threshold: Some(cli.threshold),
-        include_tests: Some(cli.include_tests),
-        extensions: None,
-        exclude: None,
-    };
-
-    let reporter_opts = TextReporterOptions {
-        verbose: cli.verbose,
-        flagged_only: cli.flagged_only,
-        scope: cli.scope.clone(),
-    };
-
-    (options, reporter_opts)
-}
-
 // ─── Extracted helper: handle analysis result and exit ─────────────────────────
 
 fn handle_result(result: Result<bool, String>) -> ! {
@@ -113,8 +89,8 @@ fn handle_result(result: Result<bool, String>) -> ! {
 
 fn main() {
     let cli = Cli::parse();
-
-    let (options, reporter_opts) = build_cli_options(&cli);
+    let config = config::load_config(&cli.path);
+    let (options, reporter_opts, format) = config::merge_config(&cli, &config);
 
     let target = Path::new(&cli.path);
 
@@ -124,9 +100,9 @@ fn main() {
     }
 
     let result = if target.is_dir() {
-        run_project(&cli, &options, &reporter_opts)
+        run_project(&cli, &options, &reporter_opts, &format)
     } else {
-        run_file(&cli, &options, &reporter_opts)
+        run_file(&cli.path, &options, &reporter_opts, &format)
     };
 
     handle_result(result);
@@ -135,22 +111,29 @@ fn main() {
 // ─── Single-file analysis ─────────────────────────────────────────────────────
 
 fn run_file(
-    cli: &Cli,
+    path: &str,
     options: &AnalysisOptions,
     reporter_opts: &TextReporterOptions,
+    format: &str,
 ) -> Result<bool, String> {
-    let report = analyze_file(&cli.path, options)?;
-    let below_threshold =
-        report.score < cli.threshold || report.functions.iter().any(|f| f.score < cli.threshold);
+    let report = analyze_file(path, options)?;
+    let threshold = options.refactoring_threshold.unwrap_or(65.0);
+    let below = report.score < threshold || report.functions.iter().any(|f| f.score < threshold);
 
-    let output = match cli.format.as_str() {
-        "json" => render_file_json(&report),
-        "markdown" => render_markdown_report(&report),
-        _ => render_file_report(&report, reporter_opts),
-    };
+    println!("{}", format_file_output(&report, format, reporter_opts));
+    Ok(below)
+}
 
-    println!("{output}");
-    Ok(below_threshold)
+fn format_file_output(
+    report: &FileQualityReport,
+    format: &str,
+    reporter_opts: &TextReporterOptions,
+) -> String {
+    match format {
+        "json" => render_file_json(report),
+        "markdown" => render_markdown_report(report),
+        _ => render_file_report(report, reporter_opts),
+    }
 }
 
 // ─── Extracted helper: analyze all files, skipping errors ─────────────────────
@@ -199,8 +182,12 @@ fn run_project(
     cli: &Cli,
     options: &AnalysisOptions,
     reporter_opts: &TextReporterOptions,
+    format: &str,
 ) -> Result<bool, String> {
-    let files = collect_files(&cli.path, cli.include_tests)?;
+    let include_tests = options.include_tests.unwrap_or(false);
+    let threshold = options.refactoring_threshold.unwrap_or(65.0);
+
+    let files = collect_files(&cli.path, include_tests)?;
 
     if files.is_empty() {
         eprintln!("qualitas: no supported files found in {}", cli.path);
@@ -209,14 +196,11 @@ fn run_project(
 
     let file_reports = analyze_all_files(&files, options);
 
-    let report = build_project_report(&cli.path, file_reports, cli.threshold);
+    let report = build_project_report(&cli.path, file_reports, threshold);
 
-    let below_threshold = check_project_threshold(&report, cli.threshold);
+    let below_threshold = check_project_threshold(&report, threshold);
 
-    println!(
-        "{}",
-        format_project_output(&report, &cli.format, reporter_opts)
-    );
+    println!("{}", format_project_output(&report, format, reporter_opts));
     Ok(below_threshold)
 }
 
