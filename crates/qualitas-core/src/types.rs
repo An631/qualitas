@@ -288,6 +288,15 @@ pub struct ProjectQualityReport {
     pub worst_functions: Vec<FunctionQualityReport>,
 }
 
+// ─── Flag configuration ──────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum FlagConfig {
+    Enabled(bool),
+    Custom { warn: f64, error: f64 },
+}
+
 // ─── Configuration types ─────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -321,6 +330,7 @@ pub struct AnalysisOptions {
     pub include_tests: Option<bool>,
     pub extensions: Option<Vec<String>>,
     pub exclude: Option<Vec<String>>,
+    pub flag_overrides: Option<HashMap<String, FlagConfig>>,
 }
 
 impl Default for AnalysisOptions {
@@ -332,6 +342,7 @@ impl Default for AnalysisOptions {
             include_tests: Some(false),
             extensions: None,
             exclude: None,
+            flag_overrides: None,
         }
     }
 }
@@ -346,6 +357,7 @@ pub struct QualitasConfig {
     pub exclude: Option<Vec<String>>,
     pub extensions: Option<Vec<String>>,
     pub weights: Option<WeightConfig>,
+    pub flags: Option<HashMap<String, FlagConfig>>,
     pub languages: Option<HashMap<String, LanguageConfig>>,
 }
 
@@ -353,4 +365,5 @@ pub struct QualitasConfig {
 #[serde(rename_all = "camelCase")]
 pub struct LanguageConfig {
     pub test_patterns: Option<Vec<String>>,
+    pub flags: Option<HashMap<String, FlagConfig>>,
 }

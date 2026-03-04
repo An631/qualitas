@@ -194,6 +194,7 @@ export interface AnalysisOptions {
   includeTests?: boolean;
   extensions?: string[];
   exclude?: string[];
+  flagOverrides?: Record<string, FlagConfig>;
 }
 
 export interface QualitasConfig {
@@ -204,12 +205,16 @@ export interface QualitasConfig {
   exclude?: string[];
   extensions?: string[];
   weights?: Partial<WeightConfig>;
+  flags?: Record<string, FlagConfig>;
   languages?: Record<string, LanguageConfig>;
 }
 
 export interface LanguageConfig {
   testPatterns?: string[];
+  flags?: Record<string, FlagConfig>;
 }
+
+export type FlagConfig = boolean | { warn: number; error: number };
 
 /** Compact result returned by `quickScore()` — faster than full `analyzeSource()`. */
 export interface QuickScore {

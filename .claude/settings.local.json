@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(cargo test:*)",
+      "Bash(where cargo:*)",
+      "Bash(export:*)"
     ]
   }
 }

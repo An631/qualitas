@@ -101,5 +101,6 @@ fn build_analysis_options(cli: &super::Cli, config: &QualitasConfig) -> Analysis
         include_tests: Some(resolve_bool(cli.include_tests, config.include_tests)),
         extensions: config.extensions.clone(),
         exclude: config.exclude.clone(),
+        flag_overrides: None,
     }
 }

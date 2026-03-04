@@ -10,14 +10,28 @@ module.exports = {
   // Weight profile: 'default' | 'cc-focused' | 'data-focused' | 'strict'
   profile: 'default',
 
-  // Directories to exclude from analysis. Replaces built-in defaults when set.
-  // Built-in defaults (used when omitted): node_modules, dist, build, .git, coverage, target
-  // exclude: ['node_modules', 'dist', 'build', '.git', 'coverage', 'target', 'vendor/'],
+  /** Flag configuration. Each flag can be:
+   *   true            → enabled with default thresholds
+   *   false           → disabled
+   *   { warn, error } → enabled with custom thresholds
+   * Flags not listed use their built-in defaults (all enabled except excessiveReturns).
+   */
+  // flags: {
+  //   tooManyParams: { warn: 5, error: 7 },
+  //   tooLong: { warn: 60, error: 100 },
+  //   excessiveReturns: true, // re-enable (disabled by default)
+  // },
 
-  // Per-language configuration. Keys are lowercase language names.
-  // When a language's testPatterns is set, it replaces that language's built-in defaults entirely.
-  // Languages not listed here keep their adapter defaults.
-  // Matching: substring match against file name AND full path (not glob, not regex).
+  /**
+   * Directories to exclude from analysis. Replaces built-in defaults when set.
+   * Built-in defaults (used when omitted): node_modules, dist, build, .git, coverage, target
+   * exclude: ['node_modules', 'dist', 'build', '.git', 'coverage', 'target', 'vendor/'],
+   *
+   * Per-language configuration. Keys are lowercase language names.
+   * When a language's testPatterns is set, it replaces that language's built-in defaults entirely.
+   * Languages not listed here keep their adapter defaults.
+   * Matching: substring match against file name AND full path (not glob, not regex).
+   */
   languages: {
     typescript: {
       testPatterns: [

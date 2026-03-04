@@ -12,8 +12,8 @@ use qualitas_core::languages::list_adapters;
 use qualitas_core::scorer::composite::aggregate_scores;
 use qualitas_core::scorer::thresholds::grade_from_score;
 use qualitas_core::types::{
-    AnalysisOptions, FileQualityReport, FunctionQualityReport, GradeDistribution,
-    ProjectQualityReport, ProjectSummary,
+    AnalysisOptions, FlagConfig, FileQualityReport, FunctionQualityReport, GradeDistribution,
+    ProjectQualityReport, ProjectSummary, QualitasConfig,
 };
 
 use reporters::compact::{render_compact_file, render_compact_project};
@@ -111,7 +111,9 @@ fn main() {
     let result = if Path::new(&cli.path).is_dir() {
         run_project(&cli, &options, &format, &config)
     } else {
-        run_file(&cli.path, &options, &format)
+        let mut opts = options.clone();
+        opts.flag_overrides = resolve_flag_overrides(&cli.path, &config);
+        run_file(&cli.path, &opts, &format)
     };
 
     handle_result(result);
@@ -142,10 +144,16 @@ fn format_file_output(report: &FileQualityReport, format: &str) -> String {
 
 // ─── Extracted helper: analyze all files, skipping errors ─────────────────────
 
-fn analyze_all_files(files: &[String], options: &AnalysisOptions) -> Vec<FileQualityReport> {
+fn analyze_all_files(
+    files: &[String],
+    options: &AnalysisOptions,
+    config: &QualitasConfig,
+) -> Vec<FileQualityReport> {
     let mut file_reports = Vec::new();
     for file_path in files {
-        match analyze_file(file_path, options) {
+        let mut opts = options.clone();
+        opts.flag_overrides = resolve_flag_overrides(file_path, config);
+        match analyze_file(file_path, &opts) {
             Ok(report) => file_reports.push(report),
             Err(e) => {
                 eprintln!("qualitas: skipping {file_path}: {e}");
@@ -198,7 +206,7 @@ fn run_project(
         process::exit(2);
     }
 
-    let file_reports = analyze_all_files(&files, options);
+    let file_reports = analyze_all_files(&files, options, config);
 
     let report = build_project_report(&cli.path, file_reports, threshold);
 
@@ -323,6 +331,32 @@ fn resolve_excludes(config: &qualitas_core::types::QualitasConfig) -> Vec<String
         user_excludes.clone()
     } else {
         DEFAULT_EXCLUDE.iter().map(|s| (*s).to_string()).collect()
+    }
+}
+
+// ─── Per-file flag config resolution ──────────────────────────────────────────
+
+fn language_for_extension(file_path: &str) -> Option<String> {
+    let ext = Path::new(file_path).extension()?.to_str()?;
+    match ext {
+        "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" => Some("typescript".to_string()),
+        "rs" => Some("rust".to_string()),
+        _ => None,
+    }
+}
+
+fn resolve_flag_overrides(
+    file_path: &str,
+    config: &QualitasConfig,
+) -> Option<std::collections::HashMap<String, FlagConfig>> {
+    let global = config.flags.clone();
+    let lang = language_for_extension(file_path)
+        .and_then(|l| config.languages.as_ref()?.get(&l)?.flags.clone());
+
+    match (global, lang) {
+        (None, None) => None,
+        (Some(g), None) | (None, Some(g)) => Some(g),
+        (Some(mut g), Some(l)) => { g.extend(l); Some(g) }
     }
 }
 

@@ -3,11 +3,13 @@ import { extname, join, resolve } from 'node:path';
 
 import type {
   AnalysisOptions,
+  FlagConfig,
   FileQualityReport,
   FunctionQualityReport,
   Grade,
   GradeDistribution,
   ProjectQualityReport,
+  QualitasConfig,
   QuickScore,
 } from './types.js';
 import { loadConfig, mergeOptions } from './config.js';
@@ -120,7 +122,13 @@ export async function analyzeProject(
   const includeTests = mergedOpts.includeTests ?? false;
 
   const files = await collectFiles(resolve(dirPath), extensions, excludePatterns, includeTests, testPatterns);
-  const fileReports = await Promise.all(files.map((f) => analyzeFile(f, mergedOpts)));
+  const fileReports = await Promise.all(
+    files.map((f) => {
+      const flagOverrides = resolveFlagOverrides(f, config);
+      const opts = flagOverrides ? { ...mergedOpts, flagOverrides } : mergedOpts;
+      return analyzeFile(f, opts);
+    }),
+  );
 
   return buildProjectReport(dirPath, fileReports, mergedOpts);
 }
@@ -129,6 +137,34 @@ function resolveTestPatterns(config: import('./types.js').QualitasConfig): strin
   const tsConfig = config.languages?.typescript;
   if (tsConfig?.testPatterns) return tsConfig.testPatterns;
   return TEST_PATTERNS;
+}
+
+// ─── Flag config resolution ───────────────────────────────────────────────
+
+function languageForExtension(filePath: string): string | null {
+  const ext = extname(filePath).slice(1); // remove leading dot
+  switch (ext) {
+    case 'ts': case 'tsx': case 'js': case 'jsx': case 'mjs': case 'cjs':
+      return 'typescript';
+    case 'rs':
+      return 'rust';
+    default:
+      return null;
+  }
+}
+
+function resolveFlagOverrides(
+  filePath: string,
+  config: QualitasConfig,
+): Record<string, FlagConfig> | undefined {
+  const globalFlags = config.flags;
+  const lang = languageForExtension(filePath);
+  const langFlags = lang ? config.languages?.[lang]?.flags : undefined;
+
+  if (!globalFlags && !langFlags) return undefined;
+  if (globalFlags && !langFlags) return globalFlags;
+  if (!globalFlags && langFlags) return langFlags;
+  return { ...globalFlags, ...langFlags };
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────

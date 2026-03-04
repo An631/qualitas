@@ -17,8 +17,8 @@ use crate::scorer::{
     thresholds::{generate_flags, grade_from_score},
 };
 use crate::types::{
-    AnalysisOptions, ClassQualityReport, FileQualityReport, FunctionQualityReport, MetricBreakdown,
-    SourceLocation, StructuralResult, WeightConfig,
+    AnalysisOptions, ClassQualityReport, FlagConfig, FileQualityReport, FunctionQualityReport,
+    MetricBreakdown, SourceLocation, StructuralResult, WeightConfig,
 };
 
 pub fn analyze_source_str(
@@ -47,6 +47,7 @@ struct AnalysisContext<'a> {
     profile: Option<&'a str>,
     weights: Option<&'a WeightConfig>,
     threshold: f64,
+    flag_overrides: Option<&'a std::collections::HashMap<String, FlagConfig>>,
 }
 
 impl<'a> AnalysisContext<'a> {
@@ -57,6 +58,7 @@ impl<'a> AnalysisContext<'a> {
             threshold: options
                 .refactoring_threshold
                 .unwrap_or(crate::constants::DEFAULT_REFACTORING_THRESHOLD),
+            flag_overrides: options.flag_overrides.as_ref(),
         }
     }
 }
@@ -174,7 +176,7 @@ fn build_fn_report_from_events(
     let (score, breakdown) = compute_score(&metrics, ctx.weights, ctx.profile);
     let grade = grade_from_score(score, ctx.profile);
     let needs_refactoring = score < ctx.threshold;
-    let flags = generate_flags(&metrics);
+    let flags = generate_flags(&metrics, ctx.flag_overrides);
 
     FunctionQualityReport {
         name: fe.name,
