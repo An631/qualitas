@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 // ─── Source location ───────────────────────────────────────────────────────
@@ -347,4 +349,11 @@ pub struct QualitasConfig {
     pub weights: Option<WeightConfig>,
     pub verbose: Option<bool>,
     pub flagged_only: Option<bool>,
+    pub languages: Option<HashMap<String, LanguageConfig>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LanguageConfig {
+    pub test_patterns: Option<Vec<String>>,
 }

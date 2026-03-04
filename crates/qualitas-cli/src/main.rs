@@ -100,7 +100,7 @@ fn main() {
     }
 
     let result = if target.is_dir() {
-        run_project(&cli, &options, &reporter_opts, &format)
+        run_project(&cli, &options, &reporter_opts, &format, &config)
     } else {
         run_file(&cli.path, &options, &reporter_opts, &format)
     };
@@ -183,11 +183,12 @@ fn run_project(
     options: &AnalysisOptions,
     reporter_opts: &TextReporterOptions,
     format: &str,
+    config: &qualitas_core::types::QualitasConfig,
 ) -> Result<bool, String> {
     let include_tests = options.include_tests.unwrap_or(false);
     let threshold = options.refactoring_threshold.unwrap_or(65.0);
 
-    let files = collect_files(&cli.path, include_tests)?;
+    let files = collect_files(&cli.path, include_tests, config)?;
 
     if files.is_empty() {
         eprintln!("qualitas: no supported files found in {}", cli.path);
@@ -230,91 +231,131 @@ fn analyze_file(file_path: &str, options: &AnalysisOptions) -> Result<FileQualit
 
 fn is_supported_file(
     path: &Path,
-    supported_extensions: &[&str],
-    test_patterns: &[&str],
+    supported_extensions: &[String],
+    ext_patterns: &ExtTestPatterns,
     include_tests: bool,
 ) -> bool {
-    let full_path = path.to_string_lossy();
-    let name = path.file_name().unwrap_or_default().to_string_lossy();
-
-    // Check extension
     let ext = path
         .extension()
         .map(|e| format!(".{}", e.to_string_lossy()))
         .unwrap_or_default();
 
-    if !supported_extensions.contains(&ext.as_str()) {
+    if !supported_extensions.iter().any(|e| e == &ext) {
         return false;
     }
 
-    // Skip test files unless requested (check both file name and path components)
-    if !include_tests
-        && test_patterns
-            .iter()
-            .any(|p| name.contains(p) || full_path.contains(p))
-    {
+    if !include_tests && matches_test_pattern(path, ext_patterns.get(&ext)) {
         return false;
     }
 
     true
+}
+
+fn matches_test_pattern(path: &Path, patterns: Option<&Vec<String>>) -> bool {
+    let Some(patterns) = patterns else {
+        return false;
+    };
+    let full_path = path.to_string_lossy();
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    patterns
+        .iter()
+        .any(|p| name.contains(p.as_str()) || full_path.contains(p.as_str()))
 }
 
 // ─── Extracted helper: load adapter extensions and test patterns ──────────────
 
-fn load_adapter_info() -> (Vec<&'static str>, Vec<&'static str>) {
+/// Map of file extension → test patterns for that language.
+type ExtTestPatterns = std::collections::HashMap<String, Vec<String>>;
+
+fn load_filter_info(
+    config: &qualitas_core::types::QualitasConfig,
+) -> (Vec<String>, ExtTestPatterns, Vec<String>) {
     let adapters = list_adapters();
-    let extensions: Vec<&str> = adapters
+    let mut extensions = Vec::new();
+    let mut ext_patterns: ExtTestPatterns = std::collections::HashMap::new();
+
+    for adapter in adapters {
+        let patterns = resolve_adapter_patterns(adapter.as_ref(), config);
+        for ext in adapter.extensions() {
+            extensions.push((*ext).to_string());
+            ext_patterns.insert((*ext).to_string(), patterns.clone());
+        }
+    }
+
+    let excludes = resolve_excludes(config);
+
+    (extensions, ext_patterns, excludes)
+}
+
+fn resolve_adapter_patterns(
+    adapter: &dyn qualitas_core::ir::language::LanguageAdapter,
+    config: &qualitas_core::types::QualitasConfig,
+) -> Vec<String> {
+    if let Some(langs) = &config.languages {
+        let key = adapter.name().to_lowercase();
+        // Try matching: "typescript/javascript" matches config key "typescript"
+        if let Some(lang_cfg) = langs.get(&key).or_else(|| {
+            langs
+                .iter()
+                .find(|(k, _)| key.contains(k.as_str()))
+                .map(|(_, v)| v)
+        }) {
+            if let Some(patterns) = &lang_cfg.test_patterns {
+                return patterns.clone();
+            }
+        }
+    }
+    adapter
+        .test_patterns()
         .iter()
-        .flat_map(|a| a.extensions().iter().copied())
-        .collect();
-    let test_patterns: Vec<&str> = adapters
-        .iter()
-        .flat_map(|a| a.test_patterns().iter().copied())
-        .collect();
-    (extensions, test_patterns)
+        .map(|s| (*s).to_string())
+        .collect()
+}
+
+fn resolve_excludes(config: &qualitas_core::types::QualitasConfig) -> Vec<String> {
+    if let Some(user_excludes) = &config.exclude {
+        user_excludes.clone()
+    } else {
+        DEFAULT_EXCLUDE.iter().map(|s| (*s).to_string()).collect()
+    }
 }
 
 // ─── File collection (walkdir) ────────────────────────────────────────────────
 
-/// Returns true if a directory entry should be descended into (not hidden, not excluded).
-fn should_enter_directory(entry: &walkdir::DirEntry) -> bool {
-    // Always enter the root directory (depth 0), even if it's "." or "./"
-    if entry.depth() == 0 {
-        return true;
-    }
-    let name = entry.file_name().to_string_lossy();
-    if entry.file_type().is_dir() {
-        return !name.starts_with('.') && !DEFAULT_EXCLUDE.contains(&name.as_ref());
-    }
-    true
-}
-
-fn collect_files(dir: &str, include_tests: bool) -> Result<Vec<String>, String> {
-    let (extensions, patterns) = load_adapter_info();
-    let mut files = collect_matching_files(dir, &extensions, &patterns, include_tests)?;
-    files.sort();
-    Ok(files)
-}
-
-fn collect_matching_files(
+fn collect_files(
     dir: &str,
-    extensions: &[&str],
-    patterns: &[&str],
     include_tests: bool,
+    config: &qualitas_core::types::QualitasConfig,
 ) -> Result<Vec<String>, String> {
+    let (extensions, test_patterns, excludes) = load_filter_info(config);
     let mut files = Vec::new();
     for entry in WalkDir::new(dir)
         .into_iter()
-        .filter_entry(should_enter_directory)
+        .filter_entry(|e| should_enter_directory(e, &excludes))
     {
         let entry = entry.map_err(|e| format!("walkdir error: {e}"))?;
         if entry.file_type().is_file()
-            && is_supported_file(entry.path(), extensions, patterns, include_tests)
+            && is_supported_file(entry.path(), &extensions, &test_patterns, include_tests)
         {
             files.push(entry.path().to_string_lossy().to_string());
         }
     }
+    files.sort();
     Ok(files)
+}
+
+fn should_enter_directory(entry: &walkdir::DirEntry, excludes: &[String]) -> bool {
+    if entry.depth() == 0 {
+        return true;
+    }
+    if entry.file_type().is_dir() {
+        let name = entry.file_name().to_string_lossy();
+        return !name.starts_with('.')
+            && !excludes
+                .iter()
+                .any(|e| name.as_ref() == e.trim_end_matches(['/', '\\']));
+    }
+    true
 }
 
 // ─── Extracted helper: collect all functions from file reports ─────────────────

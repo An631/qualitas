@@ -115,13 +115,20 @@ export async function analyzeProject(
   const mergedOpts = mergeOptions(config, options);
 
   const extensions = mergedOpts.extensions ?? DEFAULT_EXTENSIONS;
-  const excludePatterns = [...DEFAULT_EXCLUDE, ...(mergedOpts.exclude ?? [])];
+  const excludePatterns = mergedOpts.exclude ?? DEFAULT_EXCLUDE;
+  const testPatterns = resolveTestPatterns(config);
   const includeTests = mergedOpts.includeTests ?? false;
 
-  const files = await collectFiles(resolve(dirPath), extensions, excludePatterns, includeTests);
+  const files = await collectFiles(resolve(dirPath), extensions, excludePatterns, includeTests, testPatterns);
   const fileReports = await Promise.all(files.map((f) => analyzeFile(f, mergedOpts)));
 
   return buildProjectReport(dirPath, fileReports, mergedOpts);
+}
+
+function resolveTestPatterns(config: import('./types.js').QualitasConfig): string[] {
+  const tsConfig = config.languages?.typescript;
+  if (tsConfig?.testPatterns) return tsConfig.testPatterns;
+  return TEST_PATTERNS;
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
@@ -130,10 +137,10 @@ function isExcludedEntry(name: string, exclude: string[]): boolean {
   return exclude.some((ex) => name === ex || name.startsWith('.'));
 }
 
-function isMatchingSourceFile(name: string, extensions: string[], includeTests: boolean): boolean {
+function isMatchingSourceFile(name: string, extensions: string[], includeTests: boolean, testPatterns: string[]): boolean {
   const ext = extname(name);
   if (!extensions.includes(ext)) return false;
-  if (!includeTests && TEST_PATTERNS.some((p) => name.includes(p))) return false;
+  if (!includeTests && testPatterns.some((p) => name.includes(p))) return false;
   return true;
 }
 
@@ -141,6 +148,7 @@ interface WalkConfig {
   extensions: string[];
   exclude: string[];
   includeTests: boolean;
+  testPatterns: string[];
 }
 
 async function walkDirectory(dir: string, config: WalkConfig, results: string[]): Promise<void> {
@@ -164,7 +172,7 @@ async function processEntry(
     await walkDirectory(full, config, results);
   } else if (
     entry.isFile() &&
-    isMatchingSourceFile(entry.name, config.extensions, config.includeTests)
+    isMatchingSourceFile(entry.name, config.extensions, config.includeTests, config.testPatterns)
   ) {
     results.push(full);
   }
@@ -175,9 +183,10 @@ async function collectFiles(
   extensions: string[],
   exclude: string[],
   includeTests: boolean,
+  testPatterns: string[],
 ): Promise<string[]> {
   const results: string[] = [];
-  await walkDirectory(dir, { extensions, exclude, includeTests }, results);
+  await walkDirectory(dir, { extensions, exclude, includeTests, testPatterns }, results);
   return results;
 }
 

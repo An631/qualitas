@@ -207,6 +207,11 @@ export interface QualitasConfig {
   weights?: Partial<WeightConfig>;
   verbose?: boolean;
   flaggedOnly?: boolean;
+  languages?: Record<string, LanguageConfig>;
+}
+
+export interface LanguageConfig {
+  testPatterns?: string[];
 }
 
 /** Compact result returned by `quickScore()` — faster than full `analyzeSource()`. */
