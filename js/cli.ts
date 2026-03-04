@@ -139,7 +139,12 @@ function countAllFlags(report: FileQualityReport): number {
   return n;
 }
 
-function renderCompactLine(filePath: string, score: number, grade: string, flagCount: number): string {
+function renderCompactLine(
+  filePath: string,
+  score: number,
+  grade: string,
+  flagCount: number,
+): string {
   const flagStr = flagCount > 0 ? `  ${flagCount} flags` : '';
   return `  ${grade}  ${score.toFixed(1).padStart(5)}  ${filePath}${flagStr}`;
 }

@@ -121,7 +121,13 @@ export async function analyzeProject(
   const testPatterns = resolveTestPatterns(config);
   const includeTests = mergedOpts.includeTests ?? false;
 
-  const files = await collectFiles(resolve(dirPath), extensions, excludePatterns, includeTests, testPatterns);
+  const files = await collectFiles(
+    resolve(dirPath),
+    extensions,
+    excludePatterns,
+    includeTests,
+    testPatterns,
+  );
   const fileReports = await Promise.all(
     files.map((f) => {
       const flagOverrides = resolveFlagOverrides(f, config);
@@ -144,7 +150,12 @@ function resolveTestPatterns(config: import('./types.js').QualitasConfig): strin
 function languageForExtension(filePath: string): string | null {
   const ext = extname(filePath).slice(1); // remove leading dot
   switch (ext) {
-    case 'ts': case 'tsx': case 'js': case 'jsx': case 'mjs': case 'cjs':
+    case 'ts':
+    case 'tsx':
+    case 'js':
+    case 'jsx':
+    case 'mjs':
+    case 'cjs':
       return 'typescript';
     case 'rs':
       return 'rust';
@@ -173,7 +184,12 @@ function isExcludedEntry(name: string, exclude: string[]): boolean {
   return exclude.some((ex) => name === ex || name.startsWith('.'));
 }
 
-function isMatchingSourceFile(name: string, extensions: string[], includeTests: boolean, testPatterns: string[]): boolean {
+function isMatchingSourceFile(
+  name: string,
+  extensions: string[],
+  includeTests: boolean,
+  testPatterns: string[],
+): boolean {
   const ext = extname(name);
   if (!extensions.includes(ext)) return false;
   if (!includeTests && testPatterns.some((p) => name.includes(p))) return false;

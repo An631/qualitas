@@ -17,7 +17,7 @@ use crate::scorer::{
     thresholds::{generate_flags, grade_from_score},
 };
 use crate::types::{
-    AnalysisOptions, ClassQualityReport, FlagConfig, FileQualityReport, FunctionQualityReport,
+    AnalysisOptions, ClassQualityReport, FileQualityReport, FlagConfig, FunctionQualityReport,
     MetricBreakdown, SourceLocation, StructuralResult, WeightConfig,
 };
 

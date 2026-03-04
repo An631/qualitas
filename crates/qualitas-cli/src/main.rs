@@ -12,7 +12,7 @@ use qualitas_core::languages::list_adapters;
 use qualitas_core::scorer::composite::aggregate_scores;
 use qualitas_core::scorer::thresholds::grade_from_score;
 use qualitas_core::types::{
-    AnalysisOptions, FlagConfig, FileQualityReport, FunctionQualityReport, GradeDistribution,
+    AnalysisOptions, FileQualityReport, FlagConfig, FunctionQualityReport, GradeDistribution,
     ProjectQualityReport, ProjectSummary, QualitasConfig,
 };
 
@@ -356,7 +356,10 @@ fn resolve_flag_overrides(
     match (global, lang) {
         (None, None) => None,
         (Some(g), None) | (None, Some(g)) => Some(g),
-        (Some(mut g), Some(l)) => { g.extend(l); Some(g) }
+        (Some(mut g), Some(l)) => {
+            g.extend(l);
+            Some(g)
+        }
     }
 }
 

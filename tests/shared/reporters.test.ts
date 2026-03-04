@@ -5,11 +5,7 @@
  * well-formed output containing the expected sections and data.
  */
 
-import type {
-  FileQualityReport,
-  ProjectQualityReport,
-  Grade,
-} from '../../js/types.js';
+import type { FileQualityReport, ProjectQualityReport, Grade } from '../../js/types.js';
 
 let analyzeSource: typeof import('../../js/index').analyzeSource;
 let renderFileReport: typeof import('../../js/reporters/text').renderFileReport;
@@ -164,10 +160,7 @@ describe('renderProjectReport', () => {
       const cleanReport = analyzeSource(CLEAN_SRC, 'clean.ts');
       const complexReport = analyzeSource(COMPLEX_SRC, 'complex.ts');
 
-      const allFunctions = [
-        ...cleanReport.functions,
-        ...complexReport.functions,
-      ];
+      const allFunctions = [...cleanReport.functions, ...complexReport.functions];
 
       const dist = { a: 0, b: 0, c: 0, d: 0, f: 0 };
       for (const f of allFunctions) {

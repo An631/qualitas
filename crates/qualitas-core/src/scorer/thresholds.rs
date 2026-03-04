@@ -283,7 +283,12 @@ fn check_returns_flags(count: u32, warn: f64, error: f64) -> Vec<RefactoringFlag
 }
 
 /// Check import count and API call coupling thresholds.
-fn check_coupling_flags(imports: u32, api_calls: u32, warn: f64, error: f64) -> Vec<RefactoringFlag> {
+fn check_coupling_flags(
+    imports: u32,
+    api_calls: u32,
+    warn: f64,
+    error: f64,
+) -> Vec<RefactoringFlag> {
     let mut flags = Vec::new();
     let import_val = f64::from(imports);
     let api_val = f64::from(api_calls);
@@ -313,19 +318,6 @@ fn check_coupling_flags(imports: u32, api_calls: u32, warn: f64, error: f64) -> 
     flags
 }
 
-/// Resolve a flag's config and run its checker in one step.
-fn emit_flag(
-    name: &str,
-    default_enabled: bool,
-    default_warn: f64,
-    default_error: f64,
-    overrides: Option<&HashMap<String, FlagConfig>>,
-    checker: impl FnOnce(f64, f64) -> Vec<RefactoringFlag>,
-) -> Vec<RefactoringFlag> {
-    let r = resolve_flag(name, default_enabled, default_warn, default_error, overrides);
-    if r.enabled { checker(r.warn, r.error) } else { vec![] }
-}
-
 /// Generate all applicable refactoring flags for a function report.
 ///
 /// When `flag_overrides` is `Some`, each flag is resolved against the config:
@@ -333,33 +325,91 @@ fn emit_flag(
 ///   - `FlagConfig::Enabled(true)` → flag uses built-in thresholds
 ///   - `FlagConfig::Custom { warn, error }` → flag uses custom thresholds
 ///   - Not present → uses built-in defaults (all enabled except `excessiveReturns`)
+#[allow(clippy::implicit_hasher)]
 pub fn generate_flags(
     metrics: &MetricBreakdown,
     flag_overrides: Option<&HashMap<String, FlagConfig>>,
 ) -> Vec<RefactoringFlag> {
-    let o = flag_overrides;
-    let m = metrics;
     let mut flags = Vec::new();
+    let o = flag_overrides;
 
-    flags.extend(emit_flag("highCognitiveFlow", true, f64::from(CFC_WARNING), f64::from(CFC_ERROR), o,
-        |w, e| check_cfc_flags(m.cognitive_flow.score, w, e)));
-    flags.extend(emit_flag("highDataComplexity", true, DCI_DIFFICULTY_WARNING, DCI_DIFFICULTY_ERROR, o,
-        |w, e| check_difficulty_flags(m.data_complexity.difficulty, w, e)));
-    flags.extend(emit_flag("highHalsteadEffort", true, HALSTEAD_EFFORT_WARNING, HALSTEAD_EFFORT_ERROR, o,
-        |w, e| check_halstead_effort_flags(m.data_complexity.effort, w, e)));
-    flags.extend(emit_flag("highIdentifierChurn", true, IRC_WARNING, IRC_ERROR, o,
-        |w, e| check_irc_flags(m.identifier_reference.total_irc, w, e)));
-    flags.extend(emit_flag("tooManyParams", true, f64::from(PARAMS_WARNING), f64::from(PARAMS_ERROR), o,
-        |w, e| check_params_flags(m.structural.parameter_count, w, e)));
-    flags.extend(emit_flag("tooLong", true, f64::from(LOC_WARNING), f64::from(LOC_ERROR), o,
-        |w, e| check_loc_flags(m.structural.loc, w, e)));
-    flags.extend(emit_flag("deepNesting", true, f64::from(NESTING_WARNING), f64::from(NESTING_ERROR), o,
-        |w, e| check_nesting_flags(m.structural.max_nesting_depth, w, e)));
-    // excessiveReturns is disabled by default
-    flags.extend(emit_flag("excessiveReturns", false, f64::from(RETURNS_WARNING), f64::from(RETURNS_ERROR), o,
-        |w, e| check_returns_flags(m.structural.return_count, w, e)));
-    flags.extend(emit_flag("highCoupling", true, f64::from(IMPORT_WARNING), f64::from(IMPORT_ERROR), o,
-        |w, e| check_coupling_flags(m.dependency_coupling.import_count, m.dependency_coupling.distinct_api_calls, w, e)));
+    macro_rules! check {
+        ($n:expr, $en:expr, $w:expr, $e:expr, $chk:expr) => {{
+            let r = resolve_flag($n, $en, $w, $e, o);
+            if r.enabled {
+                flags.extend($chk(r.warn, r.error));
+            }
+        }};
+    }
+
+    check!(
+        "highCognitiveFlow",
+        true,
+        f64::from(CFC_WARNING),
+        f64::from(CFC_ERROR),
+        |w, e| check_cfc_flags(metrics.cognitive_flow.score, w, e)
+    );
+    check!(
+        "highDataComplexity",
+        true,
+        DCI_DIFFICULTY_WARNING,
+        DCI_DIFFICULTY_ERROR,
+        |w, e| check_difficulty_flags(metrics.data_complexity.difficulty, w, e)
+    );
+    check!(
+        "highHalsteadEffort",
+        true,
+        HALSTEAD_EFFORT_WARNING,
+        HALSTEAD_EFFORT_ERROR,
+        |w, e| check_halstead_effort_flags(metrics.data_complexity.effort, w, e)
+    );
+    check!(
+        "highIdentifierChurn",
+        true,
+        IRC_WARNING,
+        IRC_ERROR,
+        |w, e| check_irc_flags(metrics.identifier_reference.total_irc, w, e)
+    );
+    check!(
+        "tooManyParams",
+        true,
+        f64::from(PARAMS_WARNING),
+        f64::from(PARAMS_ERROR),
+        |w, e| check_params_flags(metrics.structural.parameter_count, w, e)
+    );
+    check!(
+        "tooLong",
+        true,
+        f64::from(LOC_WARNING),
+        f64::from(LOC_ERROR),
+        |w, e| check_loc_flags(metrics.structural.loc, w, e)
+    );
+    check!(
+        "deepNesting",
+        true,
+        f64::from(NESTING_WARNING),
+        f64::from(NESTING_ERROR),
+        |w, e| check_nesting_flags(metrics.structural.max_nesting_depth, w, e)
+    );
+    check!(
+        "excessiveReturns",
+        false,
+        f64::from(RETURNS_WARNING),
+        f64::from(RETURNS_ERROR),
+        |w, e| check_returns_flags(metrics.structural.return_count, w, e)
+    );
+    check!(
+        "highCoupling",
+        true,
+        f64::from(IMPORT_WARNING),
+        f64::from(IMPORT_ERROR),
+        |w, e| check_coupling_flags(
+            metrics.dependency_coupling.import_count,
+            metrics.dependency_coupling.distinct_api_calls,
+            w,
+            e
+        )
+    );
 
     flags
 }
@@ -560,7 +610,9 @@ mod tests {
         metrics.structural.return_count = 10; // well above threshold
         let flags = generate_flags(&metrics, None);
         assert!(
-            !flags.iter().any(|f| f.flag_type == FlagType::ExcessiveReturns),
+            !flags
+                .iter()
+                .any(|f| f.flag_type == FlagType::ExcessiveReturns),
             "excessiveReturns should be disabled by default",
         );
     }
@@ -573,7 +625,9 @@ mod tests {
         overrides.insert("excessiveReturns".to_string(), FlagConfig::Enabled(true));
         let flags = generate_flags(&metrics, Some(&overrides));
         assert!(
-            flags.iter().any(|f| f.flag_type == FlagType::ExcessiveReturns),
+            flags
+                .iter()
+                .any(|f| f.flag_type == FlagType::ExcessiveReturns),
             "excessiveReturns should fire when explicitly enabled",
         );
     }
@@ -586,7 +640,9 @@ mod tests {
         overrides.insert("highCognitiveFlow".to_string(), FlagConfig::Enabled(false));
         let flags = generate_flags(&metrics, Some(&overrides));
         assert!(
-            !flags.iter().any(|f| f.flag_type == FlagType::HighCognitiveFlow),
+            !flags
+                .iter()
+                .any(|f| f.flag_type == FlagType::HighCognitiveFlow),
             "highCognitiveFlow should be suppressed when disabled",
         );
     }
@@ -598,7 +654,10 @@ mod tests {
         let mut overrides = HashMap::new();
         overrides.insert(
             "tooLong".to_string(),
-            FlagConfig::Custom { warn: 60.0, error: 100.0 },
+            FlagConfig::Custom {
+                warn: 60.0,
+                error: 100.0,
+            },
         );
         let flags = generate_flags(&metrics, Some(&overrides));
         assert!(
@@ -614,6 +673,9 @@ mod tests {
             .find(|f| f.flag_type == FlagType::TooLong)
             .expect("LOC=65 should trigger tooLong with custom warn=60");
         assert_eq!(loc_flag.severity, Severity::Warning);
-        assert!((loc_flag.threshold - 60.0).abs() < 0.01, "threshold should be custom warn=60");
+        assert!(
+            (loc_flag.threshold - 60.0).abs() < 0.01,
+            "threshold should be custom warn=60"
+        );
     }
 }

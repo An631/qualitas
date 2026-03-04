@@ -7,11 +7,7 @@
 
 import { resolve } from 'node:path';
 
-import type {
-  FileQualityReport,
-  ProjectQualityReport,
-  Grade,
-} from '../../js/types.js';
+import type { FileQualityReport, ProjectQualityReport, Grade } from '../../js/types.js';
 
 let analyzeProject: typeof import('../../js/index').analyzeProject;
 let analyzeFile: typeof import('../../js/index').analyzeFile;
