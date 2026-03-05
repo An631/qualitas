@@ -42,7 +42,8 @@
     "quality:flagged": "cargo run -p qualitas-cli -- ./ -f flagged",
     "quality:detail": "cargo run -p qualitas-cli -- ./ -f detail",
     "quality:compact": "cargo run -p qualitas-cli -- ./ -f compact",
-    "quality:report": "cargo run -p qualitas-cli -- ./ -f markdown",
+    "quality:report-markdown  ": "cargo run -p qualitas-cli -- ./ -f markdown",
+    "quality:report-json": "cargo run -p qualitas-cli -- ./ -f json",
     "format": "cargo fmt && prettier --write \"js/**/*.ts\" \"tests/**/*.ts\"",
     "format:check": "cargo fmt --check && prettier --check \"js/**/*.ts\" \"tests/**/*.ts\""
   },
