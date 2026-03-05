@@ -7,6 +7,13 @@ module.exports = {
   // Exit code 1 if any function scores below this threshold (0-100)
   threshold: 80,
 
+  // Directories and files to exclude from analysis.
+  // Replaces built-in defaults (node_modules, dist, build, .git, coverage, target).
+  exclude: [
+    'node_modules', 'dist', 'build', '.git', 'coverage', 'target',
+    'qualitas_ts.js', // Auto-generated NAPI binding loader
+  ],
+
   // Weight profile: 'default' | 'cc-focused' | 'data-focused' | 'strict'
   profile: 'default',
 

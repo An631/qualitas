@@ -205,7 +205,7 @@ impl<'a> Visit<'a> for CfcVisitor {
 
 /// Run CFC on a raw FunctionBody AST node.
 #[cfg(test)]
-pub fn analyze_cfc_body<'a>(body: &FunctionBody<'a>, fn_name: &str) -> CognitiveFlowResult {
+pub fn analyze_cfc_body(body: &FunctionBody<'_>, fn_name: &str) -> CognitiveFlowResult {
     let mut visitor = CfcVisitor::new(fn_name);
     visitor.visit_function_body(body);
     visitor.result

@@ -90,8 +90,8 @@ fn build_reports(
         .map(|ce| build_class_report(ce, source, &imports, ctx))
         .collect();
 
-    let file_scope_report = file_scope
-        .map(|fs| Box::new(build_fn_report_from_events(fs, source, &imports, ctx)));
+    let file_scope_report =
+        file_scope.map(|fs| Box::new(build_fn_report_from_events(fs, source, &imports, ctx)));
 
     (function_reports, class_reports, file_scope_report)
 }
@@ -105,8 +105,7 @@ fn assemble_file_report(
     file_deps: crate::types::DependencyCouplingResult,
     file_scope: Option<Box<FunctionQualityReport>>,
 ) -> FileQualityReport {
-    let file_score =
-        compute_file_score(&function_reports, &class_reports, file_scope.as_deref());
+    let file_score = compute_file_score(&function_reports, &class_reports, file_scope.as_deref());
     let fn_count = count_total_functions(&function_reports, &class_reports);
     let class_count = class_reports.len() as u32;
     let flagged = count_flagged(&function_reports);

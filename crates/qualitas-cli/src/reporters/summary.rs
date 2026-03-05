@@ -29,13 +29,9 @@ pub fn render_executive_summary(report: &ProjectQualityReport) -> String {
 fn collect_all_fns(report: &ProjectQualityReport) -> Vec<&FunctionQualityReport> {
     let mut fns = Vec::new();
     for file in &report.files {
-        if let Some(fs) = &file.file_scope {
-            fns.push(fs.as_ref());
-        }
+        fns.extend(file.file_scope.iter().map(AsRef::as_ref));
         fns.extend(&file.functions);
-        for cls in &file.classes {
-            fns.extend(&cls.methods);
-        }
+        fns.extend(file.classes.iter().flat_map(|c| &c.methods));
     }
     fns
 }
@@ -159,17 +155,13 @@ fn render_file_section(report: &ProjectQualityReport) -> Vec<String> {
 fn collect_all_fn_flags_in_files(report: &ProjectQualityReport) -> Vec<&RefactoringFlag> {
     let mut flags = Vec::new();
     for file in &report.files {
-        if let Some(fs) = &file.file_scope {
-            flags.extend(&fs.flags);
-        }
-        for f in &file.functions {
-            flags.extend(&f.flags);
-        }
-        for cls in &file.classes {
-            for m in &cls.methods {
-                flags.extend(&m.flags);
-            }
-        }
+        flags.extend(file.file_scope.iter().flat_map(|fs| &fs.flags));
+        flags.extend(file.functions.iter().flat_map(|f| &f.flags));
+        flags.extend(
+            file.classes
+                .iter()
+                .flat_map(|c| c.methods.iter().flat_map(|m| &m.flags)),
+        );
     }
     flags
 }

@@ -74,11 +74,8 @@ impl LanguageAdapter for TypeScriptAdapter {
         let mut extractor = TsExtractor::new(source);
         extractor.visit_program(&parse_result.program);
 
-        let file_scope = extract_file_scope(
-            &parse_result.program,
-            source,
-            &extractor.imported_names,
-        );
+        let file_scope =
+            extract_file_scope(&parse_result.program, source, &extractor.imported_names);
 
         Ok(FileExtraction {
             functions: extractor.functions,
@@ -409,6 +406,48 @@ fn is_executable_statement(stmt: &Statement<'_>) -> bool {
     )
 }
 
+/// Emit events for top-level executable statements, returning the event stream.
+fn emit_file_scope_events(
+    program: &Program<'_>,
+    source: &str,
+    imported_names: &HashSet<String>,
+) -> Vec<QualitasEvent> {
+    let mut emitter = TsBodyEventEmitter::new(source, "<file-scope>", imported_names);
+    for stmt in &program.body {
+        if is_executable_statement(stmt) {
+            emitter.visit_statement(stmt);
+        }
+    }
+    emitter.events
+}
+
+/// Build a `FunctionExtraction` from pre-collected executable statement spans and events.
+fn build_file_scope_extraction(
+    spans: &[oxc_span::Span],
+    source: &str,
+    events: Vec<QualitasEvent>,
+) -> FunctionExtraction {
+    let loc = spans
+        .iter()
+        .map(|s| count_loc(source, s.start, s.end))
+        .sum();
+    let start = spans.first().unwrap().start;
+    let end = spans.last().unwrap().end;
+    FunctionExtraction {
+        name: "<file-scope>".to_string(),
+        inferred_name: None,
+        byte_start: start,
+        byte_end: end,
+        start_line: byte_to_line(source, start),
+        end_line: byte_to_line(source, end),
+        param_count: 0,
+        is_async: false,
+        is_generator: false,
+        events,
+        loc_override: Some(loc),
+    }
+}
+
 /// Extract file-scope analysis for top-level executable code.
 ///
 /// Iterates over `program.body`, skipping declarations, and collects events
@@ -419,43 +458,22 @@ fn extract_file_scope(
     source: &str,
     imported_names: &HashSet<String>,
 ) -> Option<FunctionExtraction> {
-    let mut emitter = TsBodyEventEmitter::new(source, "<file-scope>", imported_names);
-    let mut loc_sum: u32 = 0;
-    let mut has_statements = false;
-    let mut min_start: u32 = u32::MAX;
-    let mut max_end: u32 = 0;
-
-    for stmt in &program.body {
-        if !is_executable_statement(stmt) {
-            continue;
-        }
-        has_statements = true;
-
-        let span = stmt.span();
-        loc_sum += count_loc(source, span.start, span.end);
-        min_start = min_start.min(span.start);
-        max_end = max_end.max(span.end);
-
-        emitter.visit_statement(stmt);
-    }
-
-    if !has_statements || emitter.events.is_empty() {
+    let spans: Vec<oxc_span::Span> = program
+        .body
+        .iter()
+        .filter(|s| is_executable_statement(s))
+        .map(GetSpan::span)
+        .collect();
+    if spans.is_empty() {
         return None;
     }
 
-    Some(FunctionExtraction {
-        name: "<file-scope>".to_string(),
-        inferred_name: None,
-        byte_start: min_start,
-        byte_end: max_end,
-        start_line: byte_to_line(source, min_start),
-        end_line: byte_to_line(source, max_end),
-        param_count: 0,
-        is_async: false,
-        is_generator: false,
-        events: emitter.events,
-        loc_override: Some(loc_sum),
-    })
+    let events = emit_file_scope_events(program, source, imported_names);
+    if events.is_empty() {
+        return None;
+    }
+
+    Some(build_file_scope_extraction(&spans, source, events))
 }
 
 // ─── Function body event emitter ────────────────────────────────────────────

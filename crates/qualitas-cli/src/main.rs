@@ -174,9 +174,7 @@ fn check_project_threshold(report: &ProjectQualityReport, threshold: f64) -> boo
     report.score < threshold
         || report.files.iter().any(|f| {
             f.functions.iter().any(|func| func.score < threshold)
-                || f.file_scope
-                    .as_ref()
-                    .is_some_and(|fs| fs.score < threshold)
+                || f.file_scope.as_ref().is_some_and(|fs| fs.score < threshold)
         })
 }
 
@@ -384,7 +382,7 @@ fn collect_files(
     let mut files = Vec::new();
     for entry in WalkDir::new(dir)
         .into_iter()
-        .filter_entry(|e| should_enter_directory(e, &excludes))
+        .filter_entry(|e| should_include_entry(e, &excludes))
     {
         let entry = entry.map_err(|e| format!("walkdir error: {e}"))?;
         if entry.file_type().is_file()
@@ -397,38 +395,31 @@ fn collect_files(
     Ok(files)
 }
 
-fn should_enter_directory(entry: &walkdir::DirEntry, excludes: &[String]) -> bool {
+fn should_include_entry(entry: &walkdir::DirEntry, excludes: &[String]) -> bool {
     if entry.depth() == 0 {
         return true;
     }
+    let name = entry.file_name().to_string_lossy();
     if entry.file_type().is_dir() {
-        let name = entry.file_name().to_string_lossy();
         return !name.starts_with('.')
             && !excludes
                 .iter()
                 .any(|e| name.as_ref() == e.trim_end_matches(['/', '\\']));
     }
-    true
+    // Also exclude individual files matched by name
+    !excludes.iter().any(|e| name.as_ref() == e.as_str())
 }
 
 // ─── Extracted helper: collect all functions from file reports ─────────────────
 
 fn collect_all_functions(reports: &[FileQualityReport]) -> Vec<&FunctionQualityReport> {
-    let mut all_functions: Vec<&FunctionQualityReport> = Vec::new();
+    let mut all: Vec<&FunctionQualityReport> = Vec::new();
     for fr in reports {
-        if let Some(fs) = &fr.file_scope {
-            all_functions.push(fs);
-        }
-        for func in &fr.functions {
-            all_functions.push(func);
-        }
-        for cls in &fr.classes {
-            for m in &cls.methods {
-                all_functions.push(m);
-            }
-        }
+        all.extend(fr.file_scope.as_deref());
+        all.extend(&fr.functions);
+        all.extend(fr.classes.iter().flat_map(|c| &c.methods));
     }
-    all_functions
+    all
 }
 
 // ─── Extracted helper: build grade distribution ───────────────────────────────

@@ -4,7 +4,7 @@ import { analyzeFile, analyzeProject } from './index.js';
 import { renderFileReport, renderProjectReport } from './reporters/text.js';
 import { renderJsonReport } from './reporters/json.js';
 import { renderMarkdownReport, renderMarkdownProjectReport } from './reporters/markdown.js';
-import { statSync } from 'node:fs';
+import { type Stats, statSync } from 'node:fs';
 import { resolve, basename } from 'node:path';
 import type {
   AnalysisOptions,
@@ -35,90 +35,111 @@ program
   )
   .option('-t, --threshold <number>', 'Exit code 1 if any score is below this threshold', '65')
   .option('--include-tests', 'Include test files (*.test.ts, *.spec.ts) in analysis')
-  .action(async (targetPath: string, opts) => {
-    const resolvedPath = resolve(targetPath);
-    const config = loadConfig(resolvedPath);
-
-    const options: AnalysisOptions = {
-      profile: (opts.profile !== 'default'
-        ? opts.profile
-        : (config.profile ?? 'default')) as ProfileName,
-      refactoringThreshold:
-        opts.threshold !== '65' ? parseFloat(opts.threshold) : (config.threshold ?? 65),
-      includeTests: opts.includeTests ?? config.includeTests ?? false,
-    };
-
-    // Resolve format: CLI > config > default
-    const format = opts.format !== 'text' ? opts.format : (config.format ?? 'text');
-
-    // Derive internal flags from format preset
-    const verbose = format === 'detail';
-    const flaggedOnly = format === 'flagged';
-    const scope = 'function';
-
-    const threshold = options.refactoringThreshold ?? 65;
-    let belowThreshold = false;
-
-    try {
-      let stat;
-      try {
-        stat = statSync(targetPath);
-      } catch {
-        console.error(`qualitas: path not found: ${targetPath}`);
-        process.exit(2);
-      }
-
-      if (stat.isDirectory()) {
-        const report = await analyzeProject(targetPath, options);
-        belowThreshold =
-          report.score < threshold ||
-          report.files.some((f) => f.functions.some((fn) => fn.score < threshold));
-
-        if (format === 'json') {
-          console.log(renderJsonReport(report));
-        } else if (format === 'markdown') {
-          console.log(renderMarkdownProjectReport(report));
-        } else if (format === 'compact') {
-          console.log(renderCompactProject(report));
-        } else {
-          console.log(
-            renderProjectReport(report, {
-              verbose,
-              flaggedOnly,
-              scope,
-            }),
-          );
-        }
-      } else {
-        const report = await analyzeFile(targetPath, options);
-        belowThreshold =
-          report.score < threshold || report.functions.some((fn) => fn.score < threshold);
-
-        if (format === 'json') {
-          console.log(renderJsonReport(report));
-        } else if (format === 'markdown') {
-          console.log(renderMarkdownReport(report));
-        } else if (format === 'compact') {
-          console.log(renderCompactFile(report));
-        } else {
-          console.log(
-            renderFileReport(report, {
-              verbose,
-              flaggedOnly,
-              scope,
-            }),
-          );
-        }
-      }
-
-      process.exit(belowThreshold ? 1 : 0);
-    } catch (err) {
-      console.error(`qualitas error: ${(err as Error).message}`);
-      process.exit(2);
-    }
-  });
+  .action(runAnalysis);
 
 program.parse();
+
+// ─── CLI action handler ───────────────────────────────────────────────────
+
+interface CliOpts {
+  format: string;
+  profile: string;
+  threshold: string;
+  includeTests?: boolean;
+}
+
+function buildOptions(opts: CliOpts, config: import('./types.js').QualitasConfig): AnalysisOptions {
+  return {
+    profile: (opts.profile !== 'default'
+      ? opts.profile
+      : (config.profile ?? 'default')) as ProfileName,
+    refactoringThreshold:
+      opts.threshold !== '65' ? parseFloat(opts.threshold) : (config.threshold ?? 65),
+    includeTests: opts.includeTests ?? config.includeTests ?? false,
+  };
+}
+
+function resolveFormat(opts: CliOpts, config: import('./types.js').QualitasConfig): string {
+  return opts.format !== 'text' ? opts.format : (config.format ?? 'text');
+}
+
+async function runAnalysis(targetPath: string, opts: CliOpts): Promise<void> {
+  const config = loadConfig(resolve(targetPath));
+  const options = buildOptions(opts, config);
+  const format = resolveFormat(opts, config);
+  const threshold = options.refactoringThreshold ?? 65;
+
+  try {
+    const stat = safeStat(targetPath);
+    const belowThreshold = stat.isDirectory()
+      ? await runProjectAnalysis(targetPath, options, format, threshold)
+      : await runFileAnalysis(targetPath, options, format, threshold);
+    process.exit(belowThreshold ? 1 : 0);
+  } catch (err) {
+    console.error(`qualitas error: ${(err as Error).message}`);
+    process.exit(2);
+  }
+}
+
+function safeStat(targetPath: string): Stats {
+  try {
+    return statSync(targetPath);
+  } catch {
+    console.error(`qualitas: path not found: ${targetPath}`);
+    throw new Error(`path not found: ${targetPath}`);
+  }
+}
+
+async function runProjectAnalysis(
+  targetPath: string,
+  options: AnalysisOptions,
+  format: string,
+  threshold: number,
+): Promise<boolean> {
+  const report = await analyzeProject(targetPath, options);
+  const belowThreshold =
+    report.score < threshold ||
+    report.files.some((f) => f.functions.some((fn) => fn.score < threshold));
+
+  console.log(formatProjectOutput(report, format));
+  return belowThreshold;
+}
+
+async function runFileAnalysis(
+  targetPath: string,
+  options: AnalysisOptions,
+  format: string,
+  threshold: number,
+): Promise<boolean> {
+  const report = await analyzeFile(targetPath, options);
+  const belowThreshold =
+    report.score < threshold || report.functions.some((fn) => fn.score < threshold);
+
+  console.log(formatFileOutput(report, format));
+  return belowThreshold;
+}
+
+function formatProjectOutput(report: ProjectQualityReport, format: string): string {
+  if (format === 'json') return renderJsonReport(report);
+  if (format === 'markdown') return renderMarkdownProjectReport(report);
+  if (format === 'compact') return renderCompactProject(report);
+  return renderProjectReport(report, {
+    verbose: format === 'detail',
+    flaggedOnly: format === 'flagged',
+    scope: 'function',
+  });
+}
+
+function formatFileOutput(report: FileQualityReport, format: string): string {
+  if (format === 'json') return renderJsonReport(report);
+  if (format === 'markdown') return renderMarkdownReport(report);
+  if (format === 'compact') return renderCompactFile(report);
+  return renderFileReport(report, {
+    verbose: format === 'detail',
+    flaggedOnly: format === 'flagged',
+    scope: 'function',
+  });
+}
 
 // ─── Compact format helpers ────────────────────────────────────────────────
 
