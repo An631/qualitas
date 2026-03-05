@@ -214,6 +214,31 @@ pub fn compute_sm_from_events(
     }
 }
 
+/// Compute structural metrics from a stream of IR events with pre-computed LOC.
+///
+/// Used for file-scope analysis where the byte range is disjoint (multiple
+/// non-contiguous statements), so LOC must be computed externally by summing
+/// the LOC of each individual statement.
+pub fn compute_sm_with_loc(
+    events: &[QualitasEvent],
+    loc: u32,
+    total_lines: u32,
+    param_count: u32,
+) -> StructuralResult {
+    let (max_nesting_depth, return_count, _) = process_structural_events(events);
+    let raw_score = compute_sm_raw(loc, param_count, max_nesting_depth, return_count);
+
+    StructuralResult {
+        loc,
+        total_lines,
+        parameter_count: param_count,
+        max_nesting_depth,
+        return_count,
+        method_count: None,
+        raw_score,
+    }
+}
+
 pub fn compute_sm_raw(loc: u32, params: u32, nesting: u32, returns: u32) -> f64 {
     use crate::constants::{
         NORM_SM_LOC, NORM_SM_NESTING, NORM_SM_PARAMS, NORM_SM_RETURNS, SM_LOC_WEIGHT,

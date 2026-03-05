@@ -98,6 +98,7 @@ export async function analyzeFile(
   const source = await readFile(filePath, 'utf8');
   const report = analyzeSource(source, filePath, options);
   // Backfill file path into location objects
+  if (report.fileScope) report.fileScope.location.file = filePath;
   for (const fn_ of report.functions) fn_.location.file = filePath;
   for (const cls of report.classes) {
     cls.location.file = filePath;
@@ -245,6 +246,7 @@ async function collectFiles(
 function collectAllFunctions(fileReports: FileQualityReport[]): FunctionQualityReport[] {
   const allFunctions: FunctionQualityReport[] = [];
   for (const fr of fileReports) {
+    if (fr.fileScope) allFunctions.push(fr.fileScope);
     allFunctions.push(...fr.functions);
     for (const cls of fr.classes) allFunctions.push(...cls.methods);
   }

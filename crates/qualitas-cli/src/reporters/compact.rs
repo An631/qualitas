@@ -68,6 +68,9 @@ fn short_name(path: &str) -> String {
 
 fn count_all_flags(report: &FileQualityReport) -> usize {
     let mut n = report.flags.len();
+    if let Some(fs) = &report.file_scope {
+        n += fs.flags.len();
+    }
     for f in &report.functions {
         n += f.flags.len();
     }

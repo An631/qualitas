@@ -10,7 +10,7 @@ use crate::metrics::{
     data_complexity::compute_dci,
     dependencies::{analyze_file_dependencies_ir, compute_dc_from_events},
     identifier_refs::compute_irc,
-    structural::{compute_sm_from_events, compute_sm_raw},
+    structural::{compute_sm_from_events, compute_sm_raw, compute_sm_with_loc},
 };
 use crate::scorer::{
     composite::{aggregate_scores, compute_score},
@@ -31,7 +31,7 @@ pub fn analyze_source_str(
     let ctx = AnalysisContext::from_options(options);
 
     let file_deps = analyze_file_dependencies_ir(&extraction.imports);
-    let (function_reports, class_reports) = build_reports(extraction, source, &ctx);
+    let (function_reports, class_reports, file_scope) = build_reports(extraction, source, &ctx);
 
     Ok(assemble_file_report(
         file_path,
@@ -40,6 +40,7 @@ pub fn analyze_source_str(
         function_reports,
         class_reports,
         file_deps,
+        file_scope,
     ))
 }
 
@@ -67,11 +68,16 @@ fn build_reports(
     extraction: FileExtraction,
     source: &str,
     ctx: &AnalysisContext<'_>,
-) -> (Vec<FunctionQualityReport>, Vec<ClassQualityReport>) {
+) -> (
+    Vec<FunctionQualityReport>,
+    Vec<ClassQualityReport>,
+    Option<Box<FunctionQualityReport>>,
+) {
     let FileExtraction {
         functions,
         classes,
         imports,
+        file_scope,
     } = extraction;
 
     let function_reports = functions
@@ -84,7 +90,10 @@ fn build_reports(
         .map(|ce| build_class_report(ce, source, &imports, ctx))
         .collect();
 
-    (function_reports, class_reports)
+    let file_scope_report = file_scope
+        .map(|fs| Box::new(build_fn_report_from_events(fs, source, &imports, ctx)));
+
+    (function_reports, class_reports, file_scope_report)
 }
 
 fn assemble_file_report(
@@ -94,8 +103,10 @@ fn assemble_file_report(
     function_reports: Vec<FunctionQualityReport>,
     class_reports: Vec<ClassQualityReport>,
     file_deps: crate::types::DependencyCouplingResult,
+    file_scope: Option<Box<FunctionQualityReport>>,
 ) -> FileQualityReport {
-    let file_score = compute_file_score(&function_reports, &class_reports);
+    let file_score =
+        compute_file_score(&function_reports, &class_reports, file_scope.as_deref());
     let fn_count = count_total_functions(&function_reports, &class_reports);
     let class_count = class_reports.len() as u32;
     let flagged = count_flagged(&function_reports);
@@ -113,6 +124,7 @@ fn assemble_file_report(
         function_count: fn_count,
         class_count,
         flagged_function_count: flagged,
+        file_scope,
     }
 }
 
@@ -124,10 +136,11 @@ fn count_flagged(reports: &[FunctionQualityReport]) -> u32 {
     reports.iter().filter(|r| r.needs_refactoring).count() as u32
 }
 
-/// LOC-weighted average score across all functions and class methods.
+/// LOC-weighted average score across all functions, class methods, and file-scope.
 fn compute_file_score(
     function_reports: &[FunctionQualityReport],
     class_reports: &[ClassQualityReport],
+    file_scope: Option<&FunctionQualityReport>,
 ) -> f64 {
     let mut scores: Vec<(f64, u32)> = function_reports
         .iter()
@@ -137,6 +150,9 @@ fn compute_file_score(
         for mr in &cr.methods {
             scores.push((mr.score, mr.metrics.structural.loc.max(1)));
         }
+    }
+    if let Some(fs) = file_scope {
+        scores.push((fs.score, fs.metrics.structural.loc.max(1)));
     }
     if scores.is_empty() {
         100.0
@@ -157,13 +173,17 @@ fn build_fn_report_from_events(
     let dci = compute_dci(&fe.events);
     let irc = compute_irc(&fe.events, source);
     let dc = compute_dc_from_events(&fe.events, imports);
-    let sm = compute_sm_from_events(
-        &fe.events,
-        source,
-        fe.byte_start,
-        fe.byte_end,
-        fe.param_count,
-    );
+    let sm = if let Some(loc) = fe.loc_override {
+        compute_sm_with_loc(&fe.events, loc, loc, fe.param_count)
+    } else {
+        compute_sm_from_events(
+            &fe.events,
+            source,
+            fe.byte_start,
+            fe.byte_end,
+            fe.param_count,
+        )
+    };
 
     let metrics = MetricBreakdown {
         cognitive_flow: cfc,

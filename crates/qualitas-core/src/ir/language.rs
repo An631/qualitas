@@ -40,6 +40,8 @@ pub struct FunctionExtraction {
     pub is_generator: bool,
     /// The stream of IR events for this function body.
     pub events: Vec<QualitasEvent>,
+    /// Pre-computed LOC (used for file-scope where byte range is disjoint).
+    pub loc_override: Option<u32>,
 }
 
 /// Metadata for a single extracted class/struct/module.
@@ -63,6 +65,8 @@ pub struct FileExtraction {
     pub functions: Vec<FunctionExtraction>,
     pub classes: Vec<ClassExtraction>,
     pub imports: Vec<ImportRecord>,
+    /// Top-level executable code analysis (control flow, expressions, try/catch).
+    pub file_scope: Option<FunctionExtraction>,
 }
 
 // ─── Per-language threshold overrides ───────────────────────────────────────

@@ -147,6 +147,8 @@ export interface FileQualityReport {
   functionCount: number;
   classCount: number;
   flaggedFunctionCount: number;
+  /** Top-level executable code analysis (control flow, expressions, try/catch). */
+  fileScope?: FunctionQualityReport;
 }
 
 export interface GradeDistribution {

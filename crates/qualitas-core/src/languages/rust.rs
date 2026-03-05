@@ -44,6 +44,7 @@ impl LanguageAdapter for RustAdapter {
             functions: extractor.functions,
             classes: extractor.classes,
             imports: extractor.imports,
+            file_scope: None,
         })
     }
 }
@@ -307,6 +308,7 @@ impl<'src> RustExtractor<'src> {
             is_async,
             is_generator: false,
             events: emitter.events,
+            loc_override: None,
         }
     }
 }
@@ -404,6 +406,7 @@ impl<'ast> Visit<'ast> for RustExtractor<'_> {
             is_async,
             is_generator: false,
             events: emitter.events,
+            loc_override: None,
         };
         self.push_fn(fe);
     }

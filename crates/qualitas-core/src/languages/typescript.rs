@@ -11,14 +11,15 @@ use oxc_ast::ast::{
     ForInStatement, ForOfStatement, ForStatement, Function, FunctionBody, IdentifierReference,
     IfStatement, ImportDeclaration, ImportDeclarationSpecifier, LabeledStatement,
     LogicalExpression, MethodDefinition, NullLiteral, NumericLiteral, ObjectExpression,
-    ObjectPropertyKind, PropertyDefinition, PropertyKey, ReturnStatement, Statement, StringLiteral,
-    SwitchStatement, TSAsExpression, TSNonNullExpression, TSTypeAssertion, TemplateLiteral,
-    ThisExpression, UnaryExpression, UpdateExpression, VariableDeclarator, WhileStatement,
+    ObjectPropertyKind, Program, PropertyDefinition, PropertyKey, ReturnStatement, Statement,
+    StringLiteral, SwitchStatement, TSAsExpression, TSNonNullExpression, TSTypeAssertion,
+    TemplateLiteral, ThisExpression, UnaryExpression, UpdateExpression, VariableDeclarator,
+    WhileStatement,
 };
 use oxc_ast::visit::walk;
 use oxc_ast::Visit;
 use oxc_parser::Parser;
-use oxc_span::SourceType;
+use oxc_span::{GetSpan, SourceType};
 use oxc_syntax::scope::ScopeFlags;
 use std::collections::HashSet;
 
@@ -29,7 +30,7 @@ use crate::ir::events::{
 use crate::ir::language::{
     ClassExtraction, FileExtraction, FunctionExtraction, ImportRecord, LanguageAdapter,
 };
-use crate::parser::ast::byte_to_line;
+use crate::parser::ast::{byte_to_line, count_loc};
 
 pub struct TypeScriptAdapter;
 
@@ -73,10 +74,17 @@ impl LanguageAdapter for TypeScriptAdapter {
         let mut extractor = TsExtractor::new(source);
         extractor.visit_program(&parse_result.program);
 
+        let file_scope = extract_file_scope(
+            &parse_result.program,
+            source,
+            &extractor.imported_names,
+        );
+
         Ok(FileExtraction {
             functions: extractor.functions,
             classes: extractor.classes,
             imports: extractor.imports,
+            file_scope,
         })
     }
 }
@@ -181,6 +189,7 @@ impl<'src> TsExtractor<'src> {
             is_async: func.r#async,
             is_generator: func.generator,
             events,
+            loc_override: None,
         }
     }
 
@@ -210,6 +219,7 @@ impl<'src> TsExtractor<'src> {
             is_async: arrow.r#async,
             is_generator: false,
             events: emitter.events,
+            loc_override: None,
         });
     }
 }
@@ -374,6 +384,78 @@ impl<'a> Visit<'a> for TsExtractor<'_> {
 
         self.class_stack.pop();
     }
+}
+
+// ─── File-scope extraction ──────────────────────────────────────────────────
+// Second pass over the program body to capture top-level executable code.
+
+/// Returns true for top-level executable statements (not declarations).
+fn is_executable_statement(stmt: &Statement<'_>) -> bool {
+    matches!(
+        stmt,
+        Statement::ExpressionStatement(_)
+            | Statement::IfStatement(_)
+            | Statement::SwitchStatement(_)
+            | Statement::ForStatement(_)
+            | Statement::ForInStatement(_)
+            | Statement::ForOfStatement(_)
+            | Statement::WhileStatement(_)
+            | Statement::DoWhileStatement(_)
+            | Statement::TryStatement(_)
+            | Statement::ThrowStatement(_)
+            | Statement::BlockStatement(_)
+            | Statement::LabeledStatement(_)
+            | Statement::ReturnStatement(_)
+    )
+}
+
+/// Extract file-scope analysis for top-level executable code.
+///
+/// Iterates over `program.body`, skipping declarations, and collects events
+/// from executable statements (control flow, expression statements, try/catch).
+/// Returns `None` if no executable statements produce events.
+fn extract_file_scope(
+    program: &Program<'_>,
+    source: &str,
+    imported_names: &HashSet<String>,
+) -> Option<FunctionExtraction> {
+    let mut emitter = TsBodyEventEmitter::new(source, "<file-scope>", imported_names);
+    let mut loc_sum: u32 = 0;
+    let mut has_statements = false;
+    let mut min_start: u32 = u32::MAX;
+    let mut max_end: u32 = 0;
+
+    for stmt in &program.body {
+        if !is_executable_statement(stmt) {
+            continue;
+        }
+        has_statements = true;
+
+        let span = stmt.span();
+        loc_sum += count_loc(source, span.start, span.end);
+        min_start = min_start.min(span.start);
+        max_end = max_end.max(span.end);
+
+        emitter.visit_statement(stmt);
+    }
+
+    if !has_statements || emitter.events.is_empty() {
+        return None;
+    }
+
+    Some(FunctionExtraction {
+        name: "<file-scope>".to_string(),
+        inferred_name: None,
+        byte_start: min_start,
+        byte_end: max_end,
+        start_line: byte_to_line(source, min_start),
+        end_line: byte_to_line(source, max_end),
+        param_count: 0,
+        is_async: false,
+        is_generator: false,
+        events: emitter.events,
+        loc_override: Some(loc_sum),
+    })
 }
 
 // ─── Function body event emitter ────────────────────────────────────────────

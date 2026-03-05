@@ -231,6 +231,13 @@ fn render_class_methods(cls: &ClassQualityReport, opts: &TextReporterOptions) ->
 fn render_function_scope(report: &FileQualityReport, opts: &TextReporterOptions) -> Vec<String> {
     let mut lines = Vec::new();
 
+    // Render file-scope before functions
+    if let Some(fs) = &report.file_scope {
+        if !opts.flagged_only || fs.needs_refactoring {
+            lines.push(render_function(fs, opts));
+        }
+    }
+
     let fns = filter_functions(&report.functions, opts.flagged_only);
     for func in &fns {
         lines.push(render_function(func, opts));

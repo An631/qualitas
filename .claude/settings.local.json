@@ -4,7 +4,10 @@
       "Bash(wc:*)",
       "Bash(cargo test:*)",
       "Bash(where cargo:*)",
-      "Bash(export:*)"
+      "Bash(export:*)",
+      "Bash(cargo build:*)",
+      "Bash(ls:*)",
+      "Bash(npm run:*)"
     ]
   }
 }

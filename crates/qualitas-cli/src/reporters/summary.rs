@@ -29,6 +29,9 @@ pub fn render_executive_summary(report: &ProjectQualityReport) -> String {
 fn collect_all_fns(report: &ProjectQualityReport) -> Vec<&FunctionQualityReport> {
     let mut fns = Vec::new();
     for file in &report.files {
+        if let Some(fs) = &file.file_scope {
+            fns.push(fs.as_ref());
+        }
         fns.extend(&file.functions);
         for cls in &file.classes {
             fns.extend(&cls.methods);
@@ -156,6 +159,9 @@ fn render_file_section(report: &ProjectQualityReport) -> Vec<String> {
 fn collect_all_fn_flags_in_files(report: &ProjectQualityReport) -> Vec<&RefactoringFlag> {
     let mut flags = Vec::new();
     for file in &report.files {
+        if let Some(fs) = &file.file_scope {
+            flags.extend(&fs.flags);
+        }
         for f in &file.functions {
             flags.extend(&f.flags);
         }
@@ -184,6 +190,9 @@ fn build_file_items(report: &ProjectQualityReport) -> Vec<ScopeItem> {
 
 fn count_file_flags(file: &FileQualityReport) -> usize {
     let mut n = file.flags.len();
+    if let Some(fs) = &file.file_scope {
+        n += fs.flags.len();
+    }
     for f in &file.functions {
         n += f.flags.len();
     }
@@ -257,12 +266,19 @@ fn render_function_section(
 
 fn build_fn_items(fns: &[&FunctionQualityReport]) -> Vec<ScopeItem> {
     fns.iter()
-        .map(|f| ScopeItem {
-            name: f.name.clone(),
-            score: f.score,
-            grade: f.grade,
-            flag_count: f.flags.len(),
-            needs_refactoring: f.needs_refactoring,
+        .map(|f| {
+            let name = if f.name == "<file-scope>" {
+                format!("{} <file-scope>", short_path(&f.location.file))
+            } else {
+                f.name.clone()
+            };
+            ScopeItem {
+                name,
+                score: f.score,
+                grade: f.grade,
+                flag_count: f.flags.len(),
+                needs_refactoring: f.needs_refactoring,
+            }
         })
         .collect()
 }

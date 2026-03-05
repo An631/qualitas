@@ -46,9 +46,11 @@ fn function_row(func: &FunctionQualityReport) -> String {
 // ─── Extracted helper: render functions table ─────────────────────────────────
 
 fn render_md_functions_table(report: &FileQualityReport) -> Vec<String> {
+    let has_content =
+        report.file_scope.is_some() || !report.functions.is_empty();
     let mut lines = Vec::new();
 
-    if !report.functions.is_empty() {
+    if has_content {
         lines.push("### Functions".to_string());
         lines.push(String::new());
         lines.push(
@@ -57,6 +59,9 @@ fn render_md_functions_table(report: &FileQualityReport) -> Vec<String> {
         lines.push(
             "|----------|-------|-------|-----|-----|-----|--------|-----|--------|".to_string(),
         );
+        if let Some(fs) = &report.file_scope {
+            lines.push(function_row(fs));
+        }
         for func in &report.functions {
             lines.push(function_row(func));
         }

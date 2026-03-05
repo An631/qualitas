@@ -124,7 +124,12 @@ fn main() {
 fn run_file(path: &str, options: &AnalysisOptions, format: &str) -> Result<bool, String> {
     let report = analyze_file(path, options)?;
     let threshold = options.refactoring_threshold.unwrap_or(65.0);
-    let below = report.score < threshold || report.functions.iter().any(|f| f.score < threshold);
+    let below = report.score < threshold
+        || report.functions.iter().any(|f| f.score < threshold)
+        || report
+            .file_scope
+            .as_ref()
+            .is_some_and(|fs| fs.score < threshold);
 
     println!("{}", format_file_output(&report, format));
     Ok(below)
@@ -167,10 +172,12 @@ fn analyze_all_files(
 
 fn check_project_threshold(report: &ProjectQualityReport, threshold: f64) -> bool {
     report.score < threshold
-        || report
-            .files
-            .iter()
-            .any(|f| f.functions.iter().any(|func| func.score < threshold))
+        || report.files.iter().any(|f| {
+            f.functions.iter().any(|func| func.score < threshold)
+                || f.file_scope
+                    .as_ref()
+                    .is_some_and(|fs| fs.score < threshold)
+        })
 }
 
 // ─── Extracted helper: format project output ──────────────────────────────────
@@ -225,6 +232,9 @@ fn analyze_file(file_path: &str, options: &AnalysisOptions) -> Result<FileQualit
     let mut report = analyze_source_str(&source, file_path, options)?;
 
     // Backfill file path into location objects
+    if let Some(fs) = &mut report.file_scope {
+        fs.location.file = file_path.to_string();
+    }
     for func in &mut report.functions {
         func.location.file = file_path.to_string();
     }
@@ -406,6 +416,9 @@ fn should_enter_directory(entry: &walkdir::DirEntry, excludes: &[String]) -> boo
 fn collect_all_functions(reports: &[FileQualityReport]) -> Vec<&FunctionQualityReport> {
     let mut all_functions: Vec<&FunctionQualityReport> = Vec::new();
     for fr in reports {
+        if let Some(fs) = &fr.file_scope {
+            all_functions.push(fs);
+        }
         for func in &fr.functions {
             all_functions.push(func);
         }

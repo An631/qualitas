@@ -247,6 +247,9 @@ pub struct FileQualityReport {
     pub function_count: u32,
     pub class_count: u32,
     pub flagged_function_count: u32,
+    /// Top-level executable code analysis (control flow, expressions, try/catch).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_scope: Option<Box<FunctionQualityReport>>,
 }
 
 // TODO: construct these from Rust when analyze_project is moved to the native layer.
