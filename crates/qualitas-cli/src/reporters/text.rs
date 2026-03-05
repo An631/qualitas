@@ -176,7 +176,7 @@ fn render_class_flags(flags: &[RefactoringFlag]) -> Vec<String> {
 fn render_class_scope(report: &FileQualityReport, opts: &TextReporterOptions) -> Vec<String> {
     let mut lines = Vec::new();
     for cls in &report.classes {
-        if opts.flagged_only && !cls.needs_refactoring {
+        if opts.flagged_only && cls.methods.iter().all(|m| m.flags.is_empty()) {
             continue;
         }
         lines.push(format!(
@@ -197,7 +197,7 @@ fn filter_functions(
     flagged_only: bool,
 ) -> Vec<&FunctionQualityReport> {
     if flagged_only {
-        functions.iter().filter(|f| f.needs_refactoring).collect()
+        functions.iter().filter(|f| !f.flags.is_empty()).collect()
     } else {
         functions.iter().collect()
     }
@@ -233,7 +233,7 @@ fn render_function_scope(report: &FileQualityReport, opts: &TextReporterOptions)
 
     // Render file-scope before functions
     if let Some(fs) = &report.file_scope {
-        if !opts.flagged_only || fs.needs_refactoring {
+        if !opts.flagged_only || !fs.flags.is_empty() {
             lines.push(render_function(fs, opts));
         }
     }
@@ -317,7 +317,8 @@ fn render_worst_functions_section(
         report
             .worst_functions
             .iter()
-            .filter(|f| f.needs_refactoring)
+            .filter(|f| !f.flags.is_empty())
+            .take(10)
             .collect()
     } else {
         report.worst_functions.iter().take(5).collect()
@@ -329,7 +330,7 @@ fn render_worst_functions_section(
 
     lines.push(String::new());
     let header = if flagged_only {
-        "  Functions needing refactoring:"
+        "  Functions with flags:"
     } else {
         "  Worst functions:"
     };
@@ -349,6 +350,17 @@ fn render_worst_functions_section(
     lines
 }
 
+fn file_has_flags(file: &FileQualityReport) -> bool {
+    file.file_scope
+        .as_ref()
+        .is_some_and(|fs| !fs.flags.is_empty())
+        || file.functions.iter().any(|f| !f.flags.is_empty())
+        || file
+            .classes
+            .iter()
+            .any(|c| c.methods.iter().any(|m| !m.flags.is_empty()))
+}
+
 // ─── Extracted helper: render file details section ────────────────────────────
 
 fn render_file_details_section(
@@ -357,7 +369,7 @@ fn render_file_details_section(
 ) -> Vec<String> {
     let mut lines = vec![String::new()];
     for file in &report.files {
-        if opts.flagged_only && !file.needs_refactoring {
+        if opts.flagged_only && !file_has_flags(file) {
             continue;
         }
         lines.push(render_file_report(file, opts));
@@ -378,9 +390,7 @@ pub fn render_project_report(report: &ProjectQualityReport, opts: &TextReporterO
         lines.extend(render_worst_functions_section(report, opts.flagged_only));
     }
 
-    if opts.verbose || !opts.flagged_only {
-        lines.extend(render_file_details_section(report, opts));
-    }
+    lines.extend(render_file_details_section(report, opts));
 
     lines.join("\n")
 }
