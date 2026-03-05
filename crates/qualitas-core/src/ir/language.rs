@@ -7,18 +7,33 @@
 /// 3. Register it in `src/languages/mod.rs`
 ///
 /// That's it. The scorer, types, constants, and napi layer remain untouched.
+///
+/// **Key contract:** Import records must include binding names so per-function
+/// coupling analysis works. See [`ImportRecord::names`] for details.
 use crate::ir::events::QualitasEvent;
 
 // ─── Extraction types ───────────────────────────────────────────────────────
 
 /// Import record from file-level analysis.
+///
+/// **Important for adapter authors:** The `names` field must contain the local
+/// binding names introduced by this import. These are used to determine which
+/// imports each function actually references, enabling per-function coupling
+/// analysis. If `names` is empty, the import will never be attributed to any
+/// function and coupling scores will be artificially low.
+///
+/// Examples:
+/// - `import { readFile, writeFile } from 'fs'` → names: `["readFile", "writeFile"]`
+/// - `use std::collections::HashMap` → names: `["HashMap"]`
+/// - `import fs from 'fs'` → names: `["fs"]`
 #[derive(Debug, Clone)]
 pub struct ImportRecord {
     /// Module specifier (e.g., "fs", "./utils", "lodash")
     pub source: String,
     /// Whether this is an external (non-relative) import
     pub is_external: bool,
-    /// Imported binding names
+    /// Local binding names introduced by this import. Must be populated for
+    /// per-function coupling analysis to work correctly.
     pub names: Vec<String>,
 }
 
@@ -119,6 +134,10 @@ pub trait LanguageAdapter: Send + Sync {
     ///
     /// Each extracted function contains a `Vec<QualitasEvent>` representing
     /// the metric-relevant events found in its body.
+    ///
+    /// **Import records** must include binding names (`ImportRecord.names`) so
+    /// the dependency coupling metric can determine which imports each function
+    /// actually uses. See [`ImportRecord`] for details.
     fn extract(&self, source: &str, file_path: &str) -> Result<FileExtraction, String>;
 
     /// File name patterns that indicate test files for this language.

@@ -7,7 +7,9 @@
       "Bash(export:*)",
       "Bash(cargo build:*)",
       "Bash(ls:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(where.exe cargo:*)",
+      "Bash(mkdir:*)"
     ]
   }
 }

@@ -440,12 +440,10 @@ function longer(x: number): number {
         // The longer function should score lower (more complexity)
         assert!(
             longer_score < tiny_score,
-            "Expected longer function ({:.2}) to score lower than tiny ({:.2})",
-            longer_score,
-            tiny_score,
+            "Expected longer function ({longer_score:.2}) to score lower than tiny ({tiny_score:.2})",
         );
         // File score should be closer to the longer function's score due to LOC weighting
-        let simple_avg = (tiny_score + longer_score) / 2.0;
+        let simple_avg = f64::midpoint(tiny_score, longer_score);
         // LOC-weighted average pulls toward the longer function
         // file_score should be <= simple_avg (closer to the worse function)
         assert!(
