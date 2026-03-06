@@ -4,8 +4,8 @@ import { analyzeFile, analyzeProject } from './index.js';
 import { renderFileReport, renderProjectReport } from './reporters/text.js';
 import { renderJsonReport } from './reporters/json.js';
 import { renderMarkdownReport, renderMarkdownProjectReport } from './reporters/markdown.js';
-import { type Stats, statSync } from 'node:fs';
-import { resolve, basename } from 'node:path';
+import { type Stats, readFileSync, statSync } from 'node:fs';
+import { basename, join, resolve } from 'node:path';
 import type {
   AnalysisOptions,
   FileQualityReport,
@@ -14,12 +14,14 @@ import type {
 } from './types.js';
 import { loadConfig } from './config.js';
 
+const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8')) as {
+  version: string;
+};
+
 program
   .name('qualitas')
-  .description(
-    'TypeScript/JavaScript code quality measurement — Quality Score 0–100 (higher = better)',
-  )
-  .version('0.1.0');
+  .description('Code quality measurement — Quality Score 0–100 (higher = better)')
+  .version(pkg.version);
 
 program
   .argument('<path>', 'File or directory to analyze')

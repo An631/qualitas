@@ -7,8 +7,7 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "require": "./dist/index.js",
-      "import": "./dist/index.mjs"
+      "default": "./dist/index.js"
     }
   },
   "bin": {
@@ -96,6 +95,6 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/qualitas/qualitas"
+    "url": "https://github.com/An631/qualitas"
   }
 }

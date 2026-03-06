@@ -1,4 +1,4 @@
-name: Publish to npm
+name: Release
 
 on:
   push:
@@ -9,9 +9,9 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # ─── Build native binaries per platform ──────────────────────────────────
+  # ─── Build napi native bindings per platform ─────────────────────────────
   build-native:
-    name: Build ${{ matrix.settings.name }}
+    name: Build napi ${{ matrix.settings.name }}
     runs-on: ${{ matrix.settings.host }}
     strategy:
       fail-fast: false
@@ -84,6 +84,88 @@ jobs:
           path: '*.node'
           if-no-files-found: error
 
+  # ─── Build standalone Rust CLI binary per platform ───────────────────────
+  build-cli:
+    name: Build CLI ${{ matrix.settings.name }}
+    runs-on: ${{ matrix.settings.host }}
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - name: linux-x64
+            host: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary: qualitas
+            archive: qualitas-linux-x64.tar.gz
+
+          - name: linux-arm64
+            host: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            binary: qualitas
+            archive: qualitas-linux-arm64.tar.gz
+            cross: true
+
+          - name: darwin-x64
+            host: macos-latest
+            target: x86_64-apple-darwin
+            binary: qualitas
+            archive: qualitas-darwin-x64.tar.gz
+
+          - name: darwin-arm64
+            host: macos-latest
+            target: aarch64-apple-darwin
+            binary: qualitas
+            archive: qualitas-darwin-arm64.tar.gz
+
+          - name: win32-x64
+            host: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary: qualitas.exe
+            archive: qualitas-win32-x64.zip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.settings.target }}
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: cli-${{ matrix.settings.name }}
+
+      - name: Install cross-compilation tools (arm64)
+        if: matrix.settings.cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build CLI binary
+        run: cargo build --release -p qualitas-cli --target ${{ matrix.settings.target }}
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cd target/${{ matrix.settings.target }}/release
+          tar czf ../../../${{ matrix.settings.archive }} ${{ matrix.settings.binary }}
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "target/${{ matrix.settings.target }}/release/${{ matrix.settings.binary }}" -DestinationPath "${{ matrix.settings.archive }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.settings.name }}
+          path: ${{ matrix.settings.archive }}
+          if-no-files-found: error
+
   # ─── Run tests on built native binaries ──────────────────────────────────
   test-native:
     name: Test ${{ matrix.os }}
@@ -121,12 +203,12 @@ jobs:
         run: npm run build:ts
 
       - name: Run JS tests
-        run: npm test
+        run: npm run test:ts
 
   # ─── Publish to npm ───────────────────────────────────────────────────────
   publish:
     name: Publish to npm
-    needs: test-native
+    needs: [test-native, build-cli]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -148,7 +230,7 @@ jobs:
         with:
           path: artifacts
 
-      - name: Move artifacts to npm packages
+      - name: Move napi bindings to npm packages
         shell: bash
         run: |
           for dir in artifacts/bindings-*; do
@@ -179,5 +261,7 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/**/*.node
+          files: |
+            artifacts/**/*.node
+            artifacts/cli-*/*
           generate_release_notes: true
