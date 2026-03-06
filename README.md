@@ -74,7 +74,7 @@ No build step required when installing from npm.
 
 ### 1. Cognitive Flow Complexity (CFC) — 30% weight
 
-An enhanced version of CC-Sonar. Tracks nesting depth during AST traversal and applies progressively larger penalties for deeply nested control flow.
+Tracks nesting depth during AST traversal and applies progressively larger penalties for deeply nested control flow.
 
 **Scoring increments:**
 
@@ -93,8 +93,6 @@ An enhanced version of CC-Sonar. Tracks nesting depth during AST traversal and a
 | `await` inside nested function | +1 | Yes |
 
 **Formula:** `CFC = Σ(1 + nestingDepth)` for nesting nodes, `+1` flat for non-nesting nodes.
-
-**Why better than raw CC-Sonar:** Adds JS-specific async/Promise chain penalties and models the real cost of deeply nested callbacks (a pattern common in JS/TS that CC-Sonar underweights).
 
 ---
 
