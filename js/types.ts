@@ -209,6 +209,8 @@ export interface QualitasConfig {
   weights?: Partial<WeightConfig>;
   flags?: Record<string, FlagConfig>;
   languages?: Record<string, LanguageConfig>;
+  /** Fail (exit 1) if any function has flags at this severity: 'warn' | 'error'. */
+  failOnFlags?: 'warn' | 'error';
 }
 
 export interface LanguageConfig {

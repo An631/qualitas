@@ -10,12 +10,23 @@ module.exports = {
   // Directories and files to exclude from analysis.
   // Replaces built-in defaults (node_modules, dist, build, .git, coverage, target).
   exclude: [
-    'node_modules', 'dist', 'build', '.git', 'coverage', 'target',
+    'node_modules',
+    'dist',
+    'build',
+    '.git',
+    'coverage',
+    'target',
     'qualitas_napi.js', // Auto-generated NAPI binding loader
   ],
 
   // Weight profile: 'default' | 'cc-focused' | 'data-focused' | 'strict'
   profile: 'default',
+
+  // Fail (exit 1) if any function has flags at this severity or above.
+  // 'warn'  → fail on any warning or error flag (zero tolerance)
+  // 'error' → fail only on error-level flags
+  // Omit or set to false to disable (default: score-only threshold)
+  // failOnFlags: 'error',
 
   /** Flag configuration. Each flag can be:
    *   true            → enabled with default thresholds

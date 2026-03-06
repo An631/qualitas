@@ -362,6 +362,9 @@ pub struct QualitasConfig {
     pub weights: Option<WeightConfig>,
     pub flags: Option<HashMap<String, FlagConfig>>,
     pub languages: Option<HashMap<String, LanguageConfig>>,
+    /// Fail (exit 1) if any function has flags at this severity or above.
+    /// Values: "warn" (fail on any flag) or "error" (fail only on error flags).
+    pub fail_on_flags: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

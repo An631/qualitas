@@ -35,6 +35,7 @@ program
   )
   .option('-t, --threshold <number>', 'Exit code 1 if any score is below this threshold', '65')
   .option('--include-tests', 'Include test files (*.test.ts, *.spec.ts) in analysis')
+  .option('--fail-on-flags <level>', 'Fail (exit 1) if any function has flags: warn | error')
   .action(runAnalysis);
 
 program.parse();
@@ -46,6 +47,7 @@ interface CliOpts {
   profile: string;
   threshold: string;
   includeTests?: boolean;
+  failOnFlags?: string;
 }
 
 function buildOptions(opts: CliOpts, config: import('./types.js').QualitasConfig): AnalysisOptions {
@@ -68,12 +70,13 @@ async function runAnalysis(targetPath: string, opts: CliOpts): Promise<void> {
   const options = buildOptions(opts, config);
   const format = resolveFormat(opts, config);
   const threshold = options.refactoringThreshold ?? 65;
+  const failOnFlags = opts.failOnFlags ?? config.failOnFlags;
 
   try {
     const stat = safeStat(targetPath);
     const belowThreshold = stat.isDirectory()
-      ? await runProjectAnalysis(targetPath, options, format, threshold)
-      : await runFileAnalysis(targetPath, options, format, threshold);
+      ? await runProjectAnalysis(targetPath, options, format, threshold, failOnFlags)
+      : await runFileAnalysis(targetPath, options, format, threshold, failOnFlags);
     process.exit(belowThreshold ? 1 : 0);
   } catch (err) {
     console.error(`qualitas error: ${(err as Error).message}`);
@@ -95,11 +98,16 @@ async function runProjectAnalysis(
   options: AnalysisOptions,
   format: string,
   threshold: number,
+  failOnFlags?: string,
 ): Promise<boolean> {
   const report = await analyzeProject(targetPath, options);
   const belowThreshold =
     report.score < threshold ||
-    report.files.some((f) => f.functions.some((fn) => fn.score < threshold));
+    report.files.some(
+      (f) =>
+        f.functions.some((fn) => fn.score < threshold) ||
+        hasFlagsAtSeverity(f.functions, failOnFlags),
+    );
 
   console.log(formatProjectOutput(report, format));
   return belowThreshold;
@@ -110,13 +118,30 @@ async function runFileAnalysis(
   options: AnalysisOptions,
   format: string,
   threshold: number,
+  failOnFlags?: string,
 ): Promise<boolean> {
   const report = await analyzeFile(targetPath, options);
   const belowThreshold =
-    report.score < threshold || report.functions.some((fn) => fn.score < threshold);
+    report.score < threshold ||
+    report.functions.some((fn) => fn.score < threshold) ||
+    hasFlagsAtSeverity(report.functions, failOnFlags);
 
   console.log(formatFileOutput(report, format));
   return belowThreshold;
+}
+
+function hasFlagsAtSeverity(
+  functions: import('./types.js').FunctionQualityReport[],
+  failOnFlags?: string,
+): boolean {
+  if (!failOnFlags) return false;
+  if (failOnFlags === 'warn') {
+    return functions.some((fn) => fn.flags.length > 0);
+  }
+  if (failOnFlags === 'error') {
+    return functions.some((fn) => fn.flags.some((f) => f.severity === 'error'));
+  }
+  return false;
 }
 
 function formatProjectOutput(report: ProjectQualityReport, format: string): string {

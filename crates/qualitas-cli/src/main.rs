@@ -49,6 +49,10 @@ struct Cli {
     /// Include test files (*.test.*, *.spec.*) in analysis
     #[arg(long)]
     include_tests: bool,
+
+    /// Fail (exit 1) if any function has flags at this severity: warn | error
+    #[arg(long)]
+    fail_on_flags: Option<String>,
 }
 
 // ─── Default file-collection settings ─────────────────────────────────────────
@@ -106,14 +110,19 @@ fn main() {
     let config = config::load_config(&cli.path);
     let (options, format) = config::merge_config(&cli, &config);
 
+    let fail_on_flags = cli
+        .fail_on_flags
+        .as_deref()
+        .or(config.fail_on_flags.as_deref());
+
     validate_path(&cli.path);
 
     let result = if Path::new(&cli.path).is_dir() {
-        run_project(&cli, &options, &format, &config)
+        run_project(&cli, &options, &format, &config, fail_on_flags)
     } else {
         let mut opts = options.clone();
         opts.flag_overrides = resolve_flag_overrides(&cli.path, &config);
-        run_file(&cli.path, &opts, &format)
+        run_file(&cli.path, &opts, &format, fail_on_flags)
     };
 
     handle_result(result);
@@ -121,7 +130,12 @@ fn main() {
 
 // ─── Single-file analysis ─────────────────────────────────────────────────────
 
-fn run_file(path: &str, options: &AnalysisOptions, format: &str) -> Result<bool, String> {
+fn run_file(
+    path: &str,
+    options: &AnalysisOptions,
+    format: &str,
+    fail_on_flags: Option<&str>,
+) -> Result<bool, String> {
     let report = analyze_file(path, options)?;
     let threshold = options.refactoring_threshold.unwrap_or(65.0);
     let below = report.score < threshold
@@ -129,7 +143,8 @@ fn run_file(path: &str, options: &AnalysisOptions, format: &str) -> Result<bool,
         || report
             .file_scope
             .as_ref()
-            .is_some_and(|fs| fs.score < threshold);
+            .is_some_and(|fs| fs.score < threshold)
+        || has_flags_at_severity(&report.functions, report.file_scope.as_deref(), fail_on_flags);
 
     println!("{}", format_file_output(&report, format));
     Ok(below)
@@ -170,12 +185,37 @@ fn analyze_all_files(
 
 // ─── Extracted helper: check if project score is below threshold ──────────────
 
-fn check_project_threshold(report: &ProjectQualityReport, threshold: f64) -> bool {
+fn check_project_threshold(
+    report: &ProjectQualityReport,
+    threshold: f64,
+    fail_on_flags: Option<&str>,
+) -> bool {
     report.score < threshold
         || report.files.iter().any(|f| {
             f.functions.iter().any(|func| func.score < threshold)
                 || f.file_scope.as_ref().is_some_and(|fs| fs.score < threshold)
+                || has_flags_at_severity(&f.functions, f.file_scope.as_deref(), fail_on_flags)
         })
+}
+
+/// Check if any function has flags at the specified severity level.
+fn has_flags_at_severity(
+    functions: &[FunctionQualityReport],
+    file_scope: Option<&FunctionQualityReport>,
+    fail_on_flags: Option<&str>,
+) -> bool {
+    let Some(level) = fail_on_flags else {
+        return false;
+    };
+    let check_fn = |f: &FunctionQualityReport| match level {
+        "warn" => !f.flags.is_empty(),
+        "error" => f.flags.iter().any(|flag| {
+            flag.severity == qualitas_core::types::Severity::Error
+        }),
+        _ => false,
+    };
+    functions.iter().any(check_fn)
+        || file_scope.is_some_and(check_fn)
 }
 
 // ─── Extracted helper: format project output ──────────────────────────────────
@@ -200,6 +240,7 @@ fn run_project(
     options: &AnalysisOptions,
     format: &str,
     config: &qualitas_core::types::QualitasConfig,
+    fail_on_flags: Option<&str>,
 ) -> Result<bool, String> {
     let include_tests = options.include_tests.unwrap_or(false);
     let threshold = options.refactoring_threshold.unwrap_or(65.0);
@@ -215,7 +256,7 @@ fn run_project(
 
     let report = build_project_report(&cli.path, file_reports, threshold);
 
-    let below_threshold = check_project_threshold(&report, threshold);
+    let below_threshold = check_project_threshold(&report, threshold, fail_on_flags);
 
     println!("{}", format_project_output(&report, format));
     Ok(below_threshold)
