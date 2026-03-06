@@ -212,8 +212,9 @@ function renderWorstFunctionsSection(worstFunctions: FunctionQualityReport[]): s
   if (worstFunctions.length === 0) return [];
   const lines: string[] = ['', pc.bold('  Worst functions:')];
   for (const fn of worstFunctions.slice(0, 5)) {
+    const icon = fn.needsRefactoring ? pc.red('✗') : pc.green('✓');
     lines.push(
-      `    ${pc.red('✗')} ${fn.location.file}  ${pc.bold(fn.name)}()  score: ${fn.score.toFixed(0)}  ${gradeColor(fn.grade, fn.grade)}`,
+      `    ${icon} ${fn.location.file}  ${pc.bold(fn.name)}()  score: ${fn.score.toFixed(0)}  ${gradeColor(fn.grade, fn.grade)}`,
     );
   }
   return lines;

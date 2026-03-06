@@ -337,9 +337,13 @@ fn render_worst_functions_section(
     lines.push(header.bold().to_string());
 
     for func in &funcs {
+        let icon = if func.needs_refactoring {
+            "\u{2717}".red().to_string()
+        } else {
+            "\u{2713}".green().to_string()
+        };
         lines.push(format!(
-            "    {} {}  {}()  score: {}  {}",
-            "\u{2717}".red(),
+            "    {icon} {}  {}()  score: {}  {}",
             func.location.file,
             func.name.bold(),
             func.score as u32,
