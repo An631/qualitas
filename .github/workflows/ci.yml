@@ -35,7 +35,7 @@ jobs:
         run: cargo fmt --all --check
 
       - name: Clippy (deny warnings)
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Run Rust unit tests
         run: cargo test -p qualitas-core
@@ -77,14 +77,23 @@ jobs:
       - name: ESLint
         run: npx eslint js/ tests/
 
-      - name: Build native addon (release)
-        run: npm run build
+      - name: Markdown lint
+        run: npx markdownlint-cli2 "**/*.md" "!node_modules" "!target"
+
+      - name: Build native addon (debug)
+        run: npm run build:debug
+
+      - name: Verify native binary exists
+        run: ls -la qualitas_napi.*.node
 
       - name: Compile TypeScript
         run: npm run build:ts
 
+      - name: TypeScript type check
+        run: npx tsc --noEmit
+
       - name: Run JS integration tests
-        run: npm test
+        run: npm run test:ts
 
   # ─── Confirm both jobs pass ───────────────────────────────────────────────
   all-pass:
