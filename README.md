@@ -1,8 +1,6 @@
-# qualitas
+# Qualitas
 
-**TypeScript/JavaScript code quality measurement — Quality Score 0–100 based on cognitive science research.**
-
-`qualitas` measures code quality across five research-backed pillars and returns a single 0–100 **Quality Score** (higher = better). It is written in Rust using [oxc_parser](https://oxc.rs/) for native-speed analysis, distributed as a native npm package via [napi-rs](https://napi.rs/), and provides both a programmatic TypeScript API and a CLI.
+**A next generation code quality measurement tool that actually works**. It measures code quality across five research-backed pillars and returns a single 0–100 **Quality Score** to guide the health of your code base. It is written in Rust using [oxc_parser](https://oxc.rs/) for native-speed analysis, distributed as a native npm package via [napi-rs](https://napi.rs/), and provides both a programmatic TypeScript API and a CLI binary for ease of use.
 
 ---
 
@@ -38,13 +36,16 @@ npx qualitas ./src/myFile.ts
 npx qualitas ./src/
 
 # JSON output for agents/automation
-npx qualitas ./src/myFile.ts --format json
+npx qualitas ./src/myFile.ts -f json
 
-# Show only functions that need refactoring
-npx qualitas ./src/ --flagged-only
+# Show only functions that have flags
+npx qualitas ./src/ -f flagged
 
 # Fail CI if any score is below threshold
 npx qualitas ./src/ --threshold 65
+
+# Zero-tolerance mode — fail on any warning flag
+npx qualitas ./src/ --fail-on-flags warn
 ```
 
 ---
@@ -227,19 +228,19 @@ Higher score = better quality. Score 100 = no detected complexity.
 
 ## Refactoring Flags
 
-Generated when any metric exceeds the grade-C threshold:
+Each flag has two thresholds: **warn** (first trigger) and **error** (severe). Flags can be individually enabled, disabled, or customized via `qualitas.config.js`. `EXCESSIVE_RETURNS` is disabled by default.
 
-| Flag | Trigger | Suggestion |
-|------|---------|------------|
-| `HIGH_COGNITIVE_FLOW` | CFC > 12 | "Extract nested branches into named functions" |
-| `HIGH_DATA_COMPLEXITY` | DCI difficulty > 25 | "Reduce variable density; extract intermediate computations" |
-| `HIGH_IDENTIFIER_CHURN` | IRC > 40 | "Shorten function scope; break into smaller functions" |
-| `TOO_MANY_PARAMS` | params > 3 | "Group related parameters into an options object" |
-| `TOO_LONG` | LOC > 40 | "Extract sub-functions to keep each under 40 lines" |
-| `DEEP_NESTING` | nesting > 3 | "Use early returns to flatten nesting" |
-| `HIGH_COUPLING` | importCount > 10 or distinctApiCalls > 8 | "Consider splitting into smaller modules" |
-| `EXCESSIVE_RETURNS` | returns > 2 | "Consolidate return paths" |
-| `HIGH_HALSTEAD_EFFORT` | effort > 1500 | "Simplify expressions; extract complex calculations" |
+| Flag | Warn | Error | Suggestion |
+|------|------|-------|------------|
+| `HIGH_COGNITIVE_FLOW` | CFC >= 13 | >= 19 | Extract nested branches into named functions |
+| `HIGH_DATA_COMPLEXITY` | difficulty >= 26 | >= 41 | Reduce variable density; extract computations |
+| `HIGH_IDENTIFIER_CHURN` | IRC >= 41 | >= 71 | Shorten function scope; break into smaller functions |
+| `HIGH_HALSTEAD_EFFORT` | effort >= 1500 | >= 5000 | Simplify expressions; extract complex calculations |
+| `TOO_MANY_PARAMS` | params >= 4 | >= 5 | Group related parameters into an options object |
+| `TOO_LONG` | LOC >= 41 | >= 61 | Extract sub-functions to keep each under 40 lines |
+| `DEEP_NESTING` | nesting >= 4 | >= 5 | Use early returns to flatten nesting |
+| `HIGH_COUPLING` | imports >= 10 | >= 15 | Consider splitting into smaller modules |
+| `EXCESSIVE_RETURNS` | returns >= 3 | >= 4 | Consolidate return paths (disabled by default) |
 
 ---
 
@@ -249,36 +250,47 @@ Generated when any metric exceeds the grade-C threshold:
 qualitas <path> [options]
 
 Arguments:
-  path                    File or directory to analyze
+  path                          File or directory to analyze
 
 Options:
-  -f, --format <format>   Output format: text | json | markdown  (default: text)
-  -p, --profile <name>    Weight profile: default | cc-focused | data-focused | strict
-  -t, --threshold <n>     Exit code 1 if any score is below this  (default: 65)
-  --flagged-only          Only show items needing refactoring
-  --verbose               Show full metric breakdown per function
-  --scope <scope>         Report scope: function | class | file | module  (default: function)
-  --include-tests         Include test files (*.test.ts, *.spec.ts)
-  -h, --help              Show help
-  -V, --version           Show version
+  -f, --format <format>         Output format (default: text)
+                                  text | compact | detail | flagged | json | markdown | summary
+  -p, --profile <name>          Weight profile: default | cc-focused | data-focused | strict
+  -t, --threshold <n>           Exit code 1 if any score is below this (default: 65)
+  --fail-on-flags <level>       Exit code 1 if any function has flags: warn | error
+  --include-tests               Include test files (*.test.*, *.spec.*) in analysis
+  -h, --help                    Show help
+  -V, --version                 Show version
 ```
+
+### Output formats
+
+| Format | Description |
+|--------|-------------|
+| `text` (default) | Per-function rows with flags |
+| `detail` | Same as text with full metric breakdown per function |
+| `flagged` | Only show functions that have flags |
+| `compact` | One-line-per-file summary |
+| `summary` | Executive summary with pillar health, grade histograms, and deduction breakdown |
+| `json` | Full report as JSON (for agents/pipelines) |
+| `markdown` | Markdown tables with badge-style scores (for PRs) |
 
 ### Exit codes
 
 | Code | Meaning |
 |------|---------|
-| `0` | All scores at or above threshold |
-| `1` | One or more scores below threshold |
+| `0` | All scores at or above threshold (and no flags, if `--fail-on-flags` is set) |
+| `1` | One or more scores below threshold, or flags detected at the configured severity |
 | `2` | Parse error or file not found |
 
-### `--scope` detail
+### `--fail-on-flags`
 
-| Value | What is shown |
-| --- | --- |
-| `function` (default) | Per-function rows with flags and (optionally) metric breakdown |
-| `class` | Class aggregate score and class-level flags only; standalone functions hidden |
-| `file` | File header and score summary only; no function or class detail |
-| `module` | Project summary stats only; no per-file expansion (project analysis only) |
+By default, the exit code is based only on the score threshold. With `--fail-on-flags`, the CLI also fails if any function has flags at the specified severity:
+
+- `--fail-on-flags warn` — fail on any warning or error flag (zero tolerance)
+- `--fail-on-flags error` — fail only on error-level flags
+
+This can also be set in `qualitas.config.js` via the `failOnFlags` field.
 
 ### Examples
 
@@ -289,17 +301,23 @@ qualitas ./src/payment.ts
 # CI check — fail if any function scores below 70
 qualitas ./src/ --threshold 70
 
+# Zero-tolerance mode — fail on any warning or error flag
+qualitas ./src/ --fail-on-flags warn
+
 # Markdown report (great for PRs)
-qualitas ./src/ --format markdown > quality-report.md
+qualitas ./src/ -f markdown > quality-report.md
 
 # JSON for agent/pipeline consumption
-qualitas ./src/ --format json | jq '.score'
+qualitas ./src/ -f json | jq '.score'
+
+# Executive summary with pillar health breakdown
+qualitas ./src/ -f summary
 
 # Use cc-focused profile (closer to pure SonarQube behavior)
 qualitas ./src/ --profile cc-focused
 
-# Show only flagged functions, verbose metrics
-qualitas ./src/ --flagged-only --verbose
+# Show only flagged functions
+qualitas ./src/ -f flagged
 ```
 
 ---
@@ -496,46 +514,44 @@ File: D — 42.0  — 1 of 3 function(s) need refactoring
 
 ```text
 qualitas/
-├── src/                    Rust core (compiled to native .node binary)
-│   ├── lib.rs              napi-rs exports: analyze_source(), quick_score()
-│   ├── analyzer.rs         Orchestrator: parse → metrics → score → report
-│   ├── types.rs            All Rust structs (serde → JSON → TypeScript)
-│   ├── constants.rs        Thresholds, weights, saturation K, grade bands
-│   ├── parser/
-│   │   └── ast.rs          oxc_parser integration + function/class boundary extraction
-│   ├── metrics/
-│   │   ├── cognitive_flow.rs   CFC: enhanced CC-Sonar with async/Promise penalties
-│   │   ├── data_complexity.rs  DCI: Halstead operators/operands counting
-│   │   ├── identifier_refs.rs  IRC: scope-span × reference-count model
-│   │   ├── dependencies.rs     DC: import analysis + API call detection
-│   │   └── structural.rs       SM: LOC, params, nesting depth, returns
-│   └── scorer/
-│       ├── composite.rs    Saturation formula + weighted composite score
-│       └── thresholds.rs   Grade assignment + refactoring flag generation
+├── crates/
+│   ├── qualitas-core/          Language-agnostic analysis engine
+│   │   ├── analyzer.rs         Orchestrator: extract → metrics → score → report
+│   │   ├── types.rs            All Rust structs (serde → JSON → TypeScript)
+│   │   ├── constants.rs        Thresholds, weights, saturation K, grade bands
+│   │   ├── ir/                 Intermediate representation (event-based)
+│   │   ├── languages/          Language adapters (TypeScript, Rust)
+│   │   ├── metrics/            5 metric collectors (CFC, DCI, IRC, DC, SM)
+│   │   ├── scorer/             Composite score + flag generation
+│   │   └── parser/             Shared parsing utilities (LOC counting, etc.)
+│   │
+│   ├── qualitas-cli/           Standalone Rust CLI binary
+│   │   ├── main.rs             CLI entry point (clap)
+│   │   ├── config.rs           qualitas.config.js loader
+│   │   └── reporters/          text, compact, detail, flagged, json, markdown, summary
+│   │
+│   └── qualitas-napi/          Node.js native binding (napi-rs)
 │
-├── js/                     TypeScript wrapper (thin layer over native binding)
-│   ├── index.ts            Public API: analyzeSource, analyzeFile, analyzeProject
-│   ├── types.ts            TypeScript interfaces mirroring Rust serde structs
-│   ├── cli.ts              Commander CLI
-│   └── reporters/
-│       ├── text.ts         Colored terminal output (picocolors)
-│       ├── json.ts         JSON.stringify wrapper
-│       └── markdown.ts     Markdown tables with badge-style scores
-│
-├── qualitas_napi.js          Platform-aware native binding loader (auto-generated)
-├── qualitas_napi.d.ts        TypeScript definitions for the raw napi binding
+├── js/                         TypeScript wrapper (thin layer over native binding)
+│   ├── index.ts                Public API: analyzeSource, analyzeFile, analyzeProject
+│   ├── types.ts                TypeScript interfaces mirroring Rust serde structs
+│   ├── cli.ts                  Commander CLI (Node.js)
+│   └── reporters/              text, json, markdown reporters
 │
 ├── tests/
-│   ├── fixtures/           Sample .ts files at known quality levels
-│   │   ├── clean.ts        Simple utilities → expected grade A
-│   │   ├── deeply_nested.ts  6-level nesting → expected grade D/F
-│   │   └── data_heavy.ts   Statistics functions → high DCI
-│   └── js/
-│       └── scorer.test.ts  Jest integration tests (exercises full native binding)
+│   ├── shared/                 Cross-cutting tests (scoring, config, reporters, project)
+│   └── typescript/             TypeScript adapter tests + fixtures
 │
-└── bin/
-    └── qualitas.js         CLI entry point shim
+├── qualitas_napi.js            Platform-aware native binding loader (auto-generated)
+└── bin/qualitas.js             Node.js CLI entry point shim
 ```
+
+### Supported languages
+
+- **TypeScript / JavaScript** — via [oxc_parser](https://oxc.rs/) (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`)
+- **Rust** — via [syn](https://docs.rs/syn) (`.rs`)
+
+Adding a new language requires only one adapter file. See `CONTRIBUTING_LANGUAGE.md`.
 
 ### Why Rust + napi-rs?
 
@@ -547,24 +563,45 @@ The core analysis engine is written in Rust for three reasons:
 
 3. **Distribution:** The napi-rs optional-dependency pattern (same as SWC, Rspack, Oxlint) lets users `npm install` without any build toolchain. Pre-compiled binaries for all 5 platforms ship as separate optional packages and are selected automatically.
 
-### AST traversal
+### Event-based IR
 
-Each metric module implements the `Visit<'a>` trait from `oxc_ast::visit`:
+Language adapters parse source code and emit a stream of `QualitasEvent` values (control flow, operators, operands, nesting, etc.). The 5 metric collectors consume these events without knowing anything about the source language. This makes adding a new language a matter of writing one adapter file — the scoring engine is fully language-agnostic.
 
-```rust
-impl<'a> Visit<'a> for CfcVisitor {
-    fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
-        self.add_nesting();
-        self.visit_expression(&it.test); // count &&/|| in condition
-        self.nesting_depth += 1;
-        self.visit_statement(&it.consequent);
-        // handle else/else-if...
-        self.nesting_depth -= 1;
-    }
-}
+---
+
+## Configuration
+
+Create a `qualitas.config.js` in your project root. All fields are optional — CLI flags take priority.
+
+```javascript
+module.exports = {
+  // Exit code 1 if any function scores below this threshold (0-100)
+  threshold: 80,
+
+  // Fail on flags regardless of score: 'warn' | 'error'
+  failOnFlags: 'error',
+
+  // Weight profile: 'default' | 'cc-focused' | 'data-focused' | 'strict'
+  profile: 'default',
+
+  // Directories/files to exclude from analysis
+  exclude: ['node_modules', 'dist', 'build', '.git', 'coverage', 'target'],
+
+  // Per-flag configuration (enable/disable, custom thresholds)
+  flags: {
+    tooManyParams: { warn: 5, error: 7 },
+    excessiveReturns: true,  // re-enable (disabled by default)
+    deepNesting: false,      // disable entirely
+  },
+
+  // Per-language test pattern configuration
+  languages: {
+    typescript: {
+      testPatterns: ['.test.', '.spec.', 'tests/'],
+    },
+  },
+};
 ```
-
-The analyzer runs all five visitors in a single AST pass per function, collecting metrics without re-parsing.
 
 ---
 
@@ -585,46 +622,40 @@ cd qualitas
 npm install
 
 # Build native binary (debug, fast)
-npx napi build --platform --js qualitas_napi.js --dts qualitas_napi.d.ts
+npm run build:debug
 
 # Build native binary (release, optimized)
-npx napi build --platform --release --js qualitas_napi.js --dts qualitas_napi.d.ts
+npm run build
 
 # Build TypeScript wrapper
 npm run build:ts
 
 # Run all tests
-cargo test          # 17 Rust unit tests
-npm test            # 6 JS integration tests
+cargo test -p qualitas-core   # 94 Rust unit tests
+npm run test:ts               # 52 JS integration tests
 ```
 
 ---
 
 ## Testing
 
-### Rust unit tests (`cargo test`)
+### Rust unit tests (`cargo test -p qualitas-core`)
 
-Located inline in each module (`#[cfg(test)]`). Cover:
+94 tests across all modules. Cover:
 
-- CFC increments for each control flow node type
-- Halstead operator/operand counting
-- IRC cost formula correctness
-- DC import analysis
-- SM LOC/nesting counting
+- Per-language conformance tests (TypeScript and Rust adapters)
+- CFC, DCI, IRC, DC, SM metric collectors via event-based IR
 - Composite scorer saturation invariants (sublinearity, score bounds)
+- Flag generation with default and custom thresholds
+- Grade assignment across all profiles
 
-### JavaScript integration tests (`npm test`)
+### JavaScript integration tests (`npm run test:ts`)
 
-35 tests in `tests/js/scorer.test.ts`. Exercise the full stack (Rust → napi binding → JS wrapper):
+52 tests across `tests/shared/` and `tests/typescript/`. Exercise the full stack (Rust → napi → JS):
 
-- Clean code scores ≥ 80, complex code triggers flags
-- `TOO_MANY_PARAMS`, `DEEP_NESTING`, `TOO_LONG`, `HIGH_IDENTIFIER_CHURN` flags all verified
-- `SourceLocation` reports 1-based line numbers (not byte offsets)
-- DC metric correctly counts distinct API calls per function
-- All function collection patterns: named functions, arrow functions, object literals, export default, class property arrows, class methods
-- `quickScore()` returns compact summary matching `analyzeSource()` score
-- `--scope` filtering (function/class/file) verified on reporter output
-- Scoring invariants: monotonicity, bounds [0, 100], `ScoreBreakdown` penalty sum
+- Scoring, config loading, reporter output, project analysis
+- TypeScript adapter: function collection patterns, class methods, arrow functions
+- Flag verification, scope filtering, scoring invariants
 
 ---
 
