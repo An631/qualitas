@@ -57,6 +57,9 @@ pub struct FunctionExtraction {
     pub events: Vec<QualitasEvent>,
     /// Pre-computed LOC (used for file-scope where byte range is disjoint).
     pub loc_override: Option<u32>,
+    /// Logical LOC: number of top-level statements in the function body.
+    /// When set, SM uses this instead of physical LOC.
+    pub statement_count: Option<u32>,
 }
 
 /// Metadata for a single extracted class/struct/module.

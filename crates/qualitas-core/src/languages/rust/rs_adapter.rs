@@ -287,6 +287,7 @@ impl<'src> RustExtractor<'src> {
             is_generator: false,
             events: emitter.events,
             loc_override: None,
+            statement_count: Some(block.stmts.len() as u32),
         }
     }
 }
@@ -318,6 +319,7 @@ impl RustExtractor<'_> {
             is_generator: false,
             events: emitter.events,
             loc_override: None,
+            statement_count: Some(block.stmts.len() as u32),
         }
     }
 }

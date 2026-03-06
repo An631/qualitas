@@ -173,7 +173,7 @@ fn collect_metrics(
     source: &str,
     imports: &[crate::ir::language::ImportRecord],
 ) -> MetricBreakdown {
-    let sm = if let Some(loc) = fe.loc_override {
+    let mut sm = if let Some(loc) = fe.loc_override {
         compute_sm_with_loc(&fe.events, loc, loc, fe.param_count)
     } else {
         compute_sm_from_events(
@@ -186,6 +186,17 @@ fn collect_metrics(
             fe.param_count,
         )
     };
+    // Use logical LOC (statement count) when available — avoids penalizing
+    // code formatters that expand single statements across multiple lines.
+    if let Some(stmt_count) = fe.statement_count {
+        sm.loc = stmt_count;
+        sm.raw_score = compute_sm_raw(
+            stmt_count,
+            sm.parameter_count,
+            sm.max_nesting_depth,
+            sm.return_count,
+        );
+    }
     MetricBreakdown {
         cognitive_flow: compute_cfc(&fe.events),
         data_complexity: compute_dci(&fe.events),

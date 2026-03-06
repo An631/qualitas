@@ -175,6 +175,7 @@ impl<'src> TsExtractor<'src> {
             Vec::new()
         };
 
+        let stmt_count = func.body.as_ref().map(|b| b.statements.len() as u32);
         FunctionExtraction {
             name: name.to_string(),
             inferred_name,
@@ -187,6 +188,7 @@ impl<'src> TsExtractor<'src> {
             is_generator: func.generator,
             events,
             loc_override: None,
+            statement_count: stmt_count,
         }
     }
 
@@ -217,6 +219,7 @@ impl<'src> TsExtractor<'src> {
             is_generator: false,
             events: emitter.events,
             loc_override: None,
+            statement_count: Some(arrow.body.statements.len() as u32),
         });
     }
 }
@@ -445,6 +448,7 @@ fn build_file_scope_extraction(
         is_generator: false,
         events,
         loc_override: Some(loc),
+        statement_count: Some(spans.len() as u32),
     }
 }
 
