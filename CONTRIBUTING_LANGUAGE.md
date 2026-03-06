@@ -5,6 +5,7 @@ This guide walks you through adding support for a new programming language. You 
 ## Overview
 
 qualitas uses an event-based IR (intermediate representation). Your language adapter:
+
 1. Parses source code using whatever parser is best for the language
 2. Walks the AST to find functions, classes, and imports
 3. For each function body, emits a `Vec<QualitasEvent>` describing the metric-relevant constructs
@@ -101,7 +102,7 @@ Your adapter needs to emit these events for the corresponding language construct
 
 After every `ControlFlow` event, emit `NestingEnter` before the branch body and `NestingExit` after:
 
-```
+```text
 ControlFlow(If)
 NestingEnter        ← depth increases
   ... events inside if body ...
@@ -114,7 +115,7 @@ NestingExit         ← depth decreases
 
 When walking into a nested function/lambda body, wrap the body events:
 
-```
+```text
 NestedCallback      ← CFC penalty
 NestedFunctionEnter ← SM/IRC stop counting here
 NestingEnter
@@ -188,6 +189,7 @@ tree-sitter nodes have `.kind()` (e.g., `"if_statement"`, `"for_statement"`) and
 ## Conformance Requirements
 
 Every language adapter must satisfy:
+
 - Non-empty events for every extracted function
 - Balanced `NestingEnter`/`NestingExit` counts
 - Balanced `NestedFunctionEnter`/`NestedFunctionExit` counts

@@ -108,7 +108,7 @@ Halstead-inspired metric. Addresses CC-Sonar's largest gap (r=0.901 correlation 
 
 **Computed values:**
 
-```
+```text
 Vocabulary  η = η₁ + η₂
 Length      N = N₁ + N₂
 Volume      V = N × log₂(η)
@@ -118,7 +118,7 @@ Effort      E = D × V
 
 **Normalized raw score:**
 
-```
+```text
 DCI_raw = 0.6 × (D / 60) + 0.4 × (V / 3000)
 ```
 
@@ -134,7 +134,7 @@ Novel metric. Inspired by the eye-tracking finding (r=0.963) that revisit count 
 
 **Algorithm:** For each declared identifier (variable, parameter, destructured binding) in function scope:
 
-```
+```text
 cost = referenceCount × log₂(scopeSpanLines + 1)
      where scopeSpanLines = lastReferenceLine − definitionLine
 ```
@@ -162,7 +162,7 @@ Measures how many external dependencies and distinct APIs a function/file touche
 
 **Normalized raw score:**
 
-```
+```text
 DC_raw = 0.4 × (importCount / 20) + 0.3 × externalRatio + 0.3 × (distinctApiCalls / 15)
 ```
 
@@ -179,7 +179,7 @@ Count-based metrics that catch simple but impactful structural issues.
 
 **Normalized raw score:**
 
-```
+```text
 SM_raw = 0.4×(loc/100) + 0.3×(params/6) + 0.2×(nesting/6) + 0.1×(returns/5)
 ```
 
@@ -191,7 +191,7 @@ SM_raw = 0.4×(loc/100) + 0.3×(params/6) + 0.2×(nesting/6) + 0.1×(returns/5)
 
 Based on the PMC paper's finding that perceived difficulty saturates — once code is complex enough, doubling raw complexity doesn't double how hard it feels:
 
-```
+```text
 saturate(x) = 1 − e^(−k × x)    where k = 1.0
 ```
 
@@ -203,7 +203,7 @@ This means once a function is in F-tier territory, further increases cause dimin
 
 ### Final score
 
-```
+```text
 penalty_i = saturate(raw_i) × weight_i × 100    for each pillar i
 totalPenalty = Σ(penalty_i)
 Quality Score = max(0, 100 − totalPenalty)
@@ -245,7 +245,7 @@ Generated when any metric exceeds the grade-C threshold:
 
 ## CLI Reference
 
-```
+```text
 qualitas <path> [options]
 
 Arguments:

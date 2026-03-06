@@ -38,3 +38,4 @@ match_same_arms         = "allow"  # keeping separate arms for clarity (e.g. "st
 struct_field_names      = "allow"  # ScoreBreakdown fields intentionally share _penalty suffix
 needless_pass_by_value  = "allow"  # napi functions require owned String params
 doc_markdown            = "allow"  # formulas in doc comments use math notation
+float_cmp               = "allow"  # exact-zero checks in score math are intentional

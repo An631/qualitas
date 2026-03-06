@@ -31,7 +31,7 @@ cd ~/qualitas && . ~/.cargo/env && <command>
 
 ## Architecture: Rust Core + napi-rs + JS Wrapper
 
-```
+```text
 User code / CLI
       ↓
 js/index.ts          (TypeScript — thin wrapper, no business logic)

@@ -7,7 +7,7 @@ fn default_options() -> AnalysisOptions {
 
 #[test]
 fn ts_file_dependencies_count_all_imports() {
-    let source = r#"
+    let source = r"
 import { readFile } from 'fs';
 import { join } from 'path';
 import { parse } from 'url';
@@ -15,7 +15,7 @@ import { parse } from 'url';
 function reader() {
     return readFile('test');
 }
-"#;
+";
     let report = analyze_source_str(source, "imports.ts", &default_options()).unwrap();
     assert_eq!(
         report.file_dependencies.import_count, 3,
@@ -26,7 +26,7 @@ function reader() {
 
 #[test]
 fn ts_function_only_counts_its_own_imports() {
-    let source = r#"
+    let source = r"
 import { readFile } from 'fs';
 import { join, resolve } from 'path';
 import { parse } from 'url';
@@ -38,7 +38,7 @@ function reader() {
 function pathHelper() {
     return join(resolve('.'), 'out');
 }
-"#;
+";
     let report = analyze_source_str(source, "split.ts", &default_options()).unwrap();
 
     assert_eq!(report.file_dependencies.import_count, 3);
@@ -68,7 +68,7 @@ function pathHelper() {
 
 #[test]
 fn ts_unused_imports_not_attributed_to_function() {
-    let source = r#"
+    let source = r"
 import { readFile } from 'fs';
 import { join } from 'path';
 import { parse } from 'url';
@@ -77,7 +77,7 @@ import { hostname } from 'os';
 function reader() {
     return readFile('test');
 }
-"#;
+";
     let report = analyze_source_str(source, "unused.ts", &default_options()).unwrap();
     assert_eq!(report.file_dependencies.import_count, 4);
 
@@ -90,7 +90,7 @@ function reader() {
 
 #[test]
 fn ts_file_scope_counts_its_own_imports() {
-    let source = r#"
+    let source = r"
 import { readFile } from 'fs';
 import { join } from 'path';
 import { parse } from 'url';
@@ -102,7 +102,7 @@ if (typeof window === 'undefined') {
 function pathHelper() {
     return join('.', 'out');
 }
-"#;
+";
     let report = analyze_source_str(source, "scope.ts", &default_options()).unwrap();
     assert_eq!(report.file_dependencies.import_count, 3);
 
@@ -123,7 +123,7 @@ function pathHelper() {
 
 #[test]
 fn ts_import_attribution_sums_to_subset_of_file_imports() {
-    let source = r#"
+    let source = r"
 import { readFile } from 'fs';
 import { join, resolve } from 'path';
 import { parse } from 'url';
@@ -140,7 +140,7 @@ function pathHelper() {
 function urlParser(input: string) {
     return parse(input);
 }
-"#;
+";
     let report = analyze_source_str(source, "attribution.ts", &default_options()).unwrap();
 
     let file_imports = report.file_dependencies.import_count;

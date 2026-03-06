@@ -60,7 +60,7 @@ impl IrcVisitor {
             .filter(|(_, e)| e.reference_count > 0)
             .map(|(name, e)| {
                 let span = e.last_reference_line.saturating_sub(e.definition_line);
-                let cost = (e.reference_count as f64) * ((span as f64 + 1.0).log2());
+                let cost = f64::from(e.reference_count) * ((f64::from(span) + 1.0).log2());
                 IdentifierHotspot {
                     name,
                     reference_count: e.reference_count,
@@ -140,7 +140,7 @@ impl<'a> Visit<'a> for IrcVisitor {
     }
 }
 
-fn analyze_irc_body<'a>(body: &FunctionBody<'a>, source: &str) -> IdentifierRefResult {
+fn analyze_irc_body(body: &FunctionBody<'_>, source: &str) -> IdentifierRefResult {
     let mut visitor = IrcVisitor::new(source);
     visitor.visit_function_body(body);
     visitor.compute()

@@ -71,7 +71,7 @@ pub fn parse_source(source: &str, file_name: &str) -> Result<ParsedFile, String>
         let msg = result
             .errors
             .iter()
-            .map(|e| e.to_string())
+            .map(std::string::ToString::to_string)
             .collect::<Vec<_>>()
             .join("; ");
         eprintln!("qualitas parse warning for {file_name}: {msg}");
@@ -164,8 +164,7 @@ impl<'a> Visit<'a> for BoundaryCollector {
         let name = func
             .id
             .as_ref()
-            .map(|id| id.name.to_string())
-            .unwrap_or_else(|| "(anonymous)".to_string());
+            .map_or_else(|| "(anonymous)".to_string(), |id| id.name.to_string());
 
         let info = FunctionInfo {
             name,
@@ -184,12 +183,11 @@ impl<'a> Visit<'a> for BoundaryCollector {
     }
 
     fn visit_variable_declarator(&mut self, decl: &VariableDeclarator<'a>) {
-        let name = match &decl.id.kind {
-            BindingPatternKind::BindingIdentifier(id) => id.name.to_string(),
-            _ => {
-                walk::walk_variable_declarator(self, decl);
-                return;
-            }
+        let name = if let BindingPatternKind::BindingIdentifier(id) = &decl.id.kind {
+            id.name.to_string()
+        } else {
+            walk::walk_variable_declarator(self, decl);
+            return;
         };
 
         if let Some(init) = &decl.init {
@@ -214,8 +212,7 @@ impl<'a> Visit<'a> for BoundaryCollector {
         let name = class
             .id
             .as_ref()
-            .map(|id| id.name.to_string())
-            .unwrap_or_else(|| "(anonymous class)".to_string());
+            .map_or_else(|| "(anonymous class)".to_string(), |id| id.name.to_string());
 
         let class_info = ClassInfo {
             name,
