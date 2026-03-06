@@ -279,7 +279,15 @@ fn render_project_header(report: &ProjectQualityReport) -> Vec<String> {
             "  {} files  |  {} functions  |  {}",
             s.total_files,
             s.total_functions,
-            format!("{} need refactoring", s.flagged_functions).red(),
+            if s.flagged_functions > 0 {
+                format!("{} need refactoring", s.flagged_functions)
+                    .red()
+                    .to_string()
+            } else {
+                format!("{} need refactoring", s.flagged_functions)
+                    .green()
+                    .to_string()
+            },
         ),
         format!(
             "  Grades: {}  {}  {}  {}  {}",
