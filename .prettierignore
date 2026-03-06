@@ -2,5 +2,5 @@ node_modules/
 dist/
 target/
 *.node
-qualitas_ts.js
-qualitas_ts.d.ts
+qualitas_napi.js
+qualitas_napi.d.ts

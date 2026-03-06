@@ -27,12 +27,12 @@ switch (platform) {
   case 'win32':
     switch (arch) {
       case 'x64':
-        localFileExisted = existsSync(join(__dirname, 'qualitas_ts.win32-x64-msvc.node'))
+        localFileExisted = existsSync(join(__dirname, 'qualitas_napi.win32-x64-msvc.node'))
         try {
           if (localFileExisted) {
-            nativeBinding = require('./qualitas_ts.win32-x64-msvc.node')
+            nativeBinding = require('./qualitas_napi.win32-x64-msvc.node')
           } else {
-            nativeBinding = require('@qualitas-ts/binding-win32-x64-msvc')
+            nativeBinding = require('@qualitas/binding-win32-x64-msvc')
           }
         } catch (e) {
           loadError = e
@@ -45,24 +45,24 @@ switch (platform) {
   case 'darwin':
     switch (arch) {
       case 'x64':
-        localFileExisted = existsSync(join(__dirname, 'qualitas_ts.darwin-x64.node'))
+        localFileExisted = existsSync(join(__dirname, 'qualitas_napi.darwin-x64.node'))
         try {
           if (localFileExisted) {
-            nativeBinding = require('./qualitas_ts.darwin-x64.node')
+            nativeBinding = require('./qualitas_napi.darwin-x64.node')
           } else {
-            nativeBinding = require('@qualitas-ts/binding-darwin-x64')
+            nativeBinding = require('@qualitas/binding-darwin-x64')
           }
         } catch (e) {
           loadError = e
         }
         break
       case 'arm64':
-        localFileExisted = existsSync(join(__dirname, 'qualitas_ts.darwin-arm64.node'))
+        localFileExisted = existsSync(join(__dirname, 'qualitas_napi.darwin-arm64.node'))
         try {
           if (localFileExisted) {
-            nativeBinding = require('./qualitas_ts.darwin-arm64.node')
+            nativeBinding = require('./qualitas_napi.darwin-arm64.node')
           } else {
-            nativeBinding = require('@qualitas-ts/binding-darwin-arm64')
+            nativeBinding = require('@qualitas/binding-darwin-arm64')
           }
         } catch (e) {
           loadError = e
@@ -76,23 +76,23 @@ switch (platform) {
     switch (arch) {
       case 'x64':
         if (isMusl()) {
-          localFileExisted = existsSync(join(__dirname, 'qualitas_ts.linux-x64-musl.node'))
+          localFileExisted = existsSync(join(__dirname, 'qualitas_napi.linux-x64-musl.node'))
           try {
             if (localFileExisted) {
-              nativeBinding = require('./qualitas_ts.linux-x64-musl.node')
+              nativeBinding = require('./qualitas_napi.linux-x64-musl.node')
             } else {
-              nativeBinding = require('@qualitas-ts/binding-linux-x64-musl')
+              nativeBinding = require('@qualitas/binding-linux-x64-musl')
             }
           } catch (e) {
             loadError = e
           }
         } else {
-          localFileExisted = existsSync(join(__dirname, 'qualitas_ts.linux-x64-gnu.node'))
+          localFileExisted = existsSync(join(__dirname, 'qualitas_napi.linux-x64-gnu.node'))
           try {
             if (localFileExisted) {
-              nativeBinding = require('./qualitas_ts.linux-x64-gnu.node')
+              nativeBinding = require('./qualitas_napi.linux-x64-gnu.node')
             } else {
-              nativeBinding = require('@qualitas-ts/binding-linux-x64-gnu')
+              nativeBinding = require('@qualitas/binding-linux-x64-gnu')
             }
           } catch (e) {
             loadError = e
@@ -101,23 +101,23 @@ switch (platform) {
         break
       case 'arm64':
         if (isMusl()) {
-          localFileExisted = existsSync(join(__dirname, 'qualitas_ts.linux-arm64-musl.node'))
+          localFileExisted = existsSync(join(__dirname, 'qualitas_napi.linux-arm64-musl.node'))
           try {
             if (localFileExisted) {
-              nativeBinding = require('./qualitas_ts.linux-arm64-musl.node')
+              nativeBinding = require('./qualitas_napi.linux-arm64-musl.node')
             } else {
-              nativeBinding = require('@qualitas-ts/binding-linux-arm64-musl')
+              nativeBinding = require('@qualitas/binding-linux-arm64-musl')
             }
           } catch (e) {
             loadError = e
           }
         } else {
-          localFileExisted = existsSync(join(__dirname, 'qualitas_ts.linux-arm64-gnu.node'))
+          localFileExisted = existsSync(join(__dirname, 'qualitas_napi.linux-arm64-gnu.node'))
           try {
             if (localFileExisted) {
-              nativeBinding = require('./qualitas_ts.linux-arm64-gnu.node')
+              nativeBinding = require('./qualitas_napi.linux-arm64-gnu.node')
             } else {
-              nativeBinding = require('@qualitas-ts/binding-linux-arm64-gnu')
+              nativeBinding = require('@qualitas/binding-linux-arm64-gnu')
             }
           } catch (e) {
             loadError = e
@@ -136,7 +136,7 @@ if (!nativeBinding) {
   if (loadError) {
     throw loadError
   }
-  throw new Error(`Failed to load native binding for qualitas-ts`)
+  throw new Error(`Failed to load native binding for qualitas`)
 }
 
 const { analyzeSource, quickScore } = nativeBinding

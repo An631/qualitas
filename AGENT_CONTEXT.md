@@ -1,4 +1,4 @@
-# Agent Context — qualitas-ts
+# Agent Context — qualitas
 
 > **For LLM agents continuing this work.** This file contains the full technical context, architectural decisions, known issues, implementation details, and planned next steps. Read this before touching any code.
 
@@ -6,7 +6,7 @@
 
 ## Project Overview
 
-`qualitas-ts` is a standalone npm package at `~/qualitas-ts/` (NOT inside the office-bohemia monorepo). It measures TypeScript/JavaScript code quality using a five-pillar composite Quality Score (0–100, higher = better). The core is written in Rust using `oxc_parser` and distributed via napi-rs as a native Node.js addon.
+`qualitas` is a standalone npm package at `~/qualitas/` (NOT inside the office-bohemia monorepo). It measures TypeScript/JavaScript code quality using a five-pillar composite Quality Score (0–100, higher = better). The core is written in Rust using `oxc_parser` and distributed via napi-rs as a native Node.js addon.
 
 **Current state:** Fully functional. All 17 Rust unit tests pass. All 35 JS integration tests pass. CLI works end-to-end with all options implemented. Published to `https://github.com/An631/qualitas`.
 
@@ -14,7 +14,7 @@
 
 ## Repository & Environment
 
-- **Local path:** `/home/vscode/qualitas-ts/`
+- **Local path:** `/home/vscode/qualitas/`
 - **GitHub:** `https://github.com/An631/qualitas` (private)
 - **Runtime environment:** Linux x64 (Codespaces / Azure VM)
 - **Rust toolchain:** stable, installed at `~/.cargo/` — always source with `. ~/.cargo/env` before running cargo/napi commands
@@ -22,8 +22,9 @@
 - **napi-rs CLI:** `@napi-rs/cli` v3, installed globally at `~/.npm-global/`
 
 **How to run commands:**
+
 ```bash
-cd ~/qualitas-ts && . ~/.cargo/env && <command>
+cd ~/qualitas && . ~/.cargo/env && <command>
 ```
 
 ---
@@ -35,9 +36,9 @@ User code / CLI
       ↓
 js/index.ts          (TypeScript — thin wrapper, no business logic)
       ↓
-qualitas_ts.js       (Platform loader — picks correct .node binary)
+qualitas_napi.js       (Platform loader — picks correct .node binary)
       ↓
-qualitas_ts.linux-x64-gnu.node   (Rust compiled via napi-rs)
+qualitas_napi.linux-x64-gnu.node   (Rust compiled via napi-rs)
       ↓
 src/lib.rs           (napi-rs exports)
       ↓
@@ -52,7 +53,7 @@ src/scorer/*.rs      (composite score + flags)
 
 1. **Rust, not Node.js:** oxc_parser is 3× faster than SWC for large files. No GC pauses. Enables analyzing 100+ file projects in under a second.
 
-2. **napi-rs optional dependency pattern:** Users `npm install qualitas-ts` without any Rust toolchain. Platform binaries are pre-compiled and ship as separate npm packages (`@qualitas-ts/binding-linux-x64-gnu`, etc.).
+2. **napi-rs optional dependency pattern:** Users `npm install qualitas` without any Rust toolchain. Platform binaries are pre-compiled and ship as separate npm packages (`@qualitas/binding-linux-x64-gnu`, etc.).
 
 3. **JSON over napi objects:** The Rust functions return `String` (JSON-serialized), not napi objects. The JS wrapper does `JSON.parse()`. Reason: avoids napi object lifetime complexity, allows future WASM port with same interface.
 
@@ -65,6 +66,7 @@ src/scorer/*.rs      (composite score + flags)
 ## File-by-File Reference
 
 ### `Cargo.toml`
+
 ```toml
 [lib]
 crate-type = ["cdylib"]
@@ -87,9 +89,11 @@ napi-build = "2"
 **Important:** `oxc_syntax` must be included for `ScopeFlags`. It's used as a parameter in `visit_function`. `ScopeFlags` is at `oxc_syntax::scope::ScopeFlags`.
 
 ### `src/types.rs`
+
 All public structs. Every struct derives `Serialize, Deserialize` with `#[serde(rename_all = "camelCase")]`. This is critical — the JS side reads camelCase JSON.
 
 Key types:
+
 - `FileQualityReport` — top-level output per file
 - `FunctionQualityReport` — per-function result
 - `ClassQualityReport` — per-class result (aggregates method scores)
@@ -100,7 +104,9 @@ Key types:
 - `WeightConfig` — per-pillar weights
 
 ### `src/constants.rs`
+
 All magic numbers. Key values:
+
 - `SATURATION_K = 1.0` — saturation rate. At x=1.0 (F-tier threshold), penalty is 63% of max. Was 0.15 originally (too gentle — complex code scored ~90). Changed to 1.0 after integration test failure.
 - `NORM_CFC = 25.0` — F-tier CFC threshold (normalize CFC/25 to get raw score)
 - `NORM_DCI_DIFFICULTY = 60.0` — F-tier Halstead difficulty
@@ -110,9 +116,11 @@ All magic numbers. Key values:
 - `DEFAULT_REFACTORING_THRESHOLD = 65.0`
 
 ### `src/parser/ast.rs`
+
 oxc_parser integration. **Key constraint:** You cannot store AST node references (`&Function<'a>`) across the allocator lifetime. The original implementation tried to use unsafe transmute to work around this — it was rewritten to only store metadata.
 
 `BoundaryCollector` implements `Visit<'a>` and stores:
+
 - `FunctionInfo { name, start_byte, end_byte, param_count, is_async, is_generator, inferred_name }`
 - `ClassInfo { name, start_byte, end_byte }`
 
@@ -123,6 +131,7 @@ oxc_parser integration. **Key constraint:** You cannot store AST node references
 ### `src/metrics/cognitive_flow.rs`
 
 `CfcVisitor` struct:
+
 ```rust
 struct CfcVisitor<'a> {
     source: &'a str,
@@ -170,7 +179,7 @@ Operands detected: identifiers, string literals, numeric literals, template lite
 
 `compute()` method on `DciVisitor` returns `DataComplexityResult` with Halstead calculations. Edge case: if η=0 or η2=0, returns zeros (avoid division by zero).
 
-```
+```txt
 V = N × log₂(η)                    // Volume
 D = (η₁/2) × (N₂/η₂)              // Difficulty
 E = D × V                           // Effort
@@ -180,6 +189,7 @@ raw_score = 0.6×(D/60) + 0.4×(V/3000)
 ### `src/metrics/identifier_refs.rs`
 
 `IrcVisitor` tracks `HashMap<String, IdentEntry>`:
+
 ```rust
 struct IdentEntry {
     definition_line: u32,
@@ -193,6 +203,7 @@ Declarations are tracked via `visit_variable_declarator` (captures let/const/var
 References are tracked via `visit_identifier_reference`.
 
 Cost formula:
+
 ```rust
 let span_lines = entry.last_reference_line.saturating_sub(entry.definition_line);
 let cost = entry.reference_count as f64 * (span_lines as f64 + 1.0_f64).log2();
@@ -203,12 +214,14 @@ Hotspots: top-N entries sorted by cost, returned in `IdentifierRefResult.hotspot
 ### `src/metrics/dependencies.rs`
 
 Two analysis functions:
+
 - `analyze_file_dependencies(import_records)` — file-level import stats
 - `analyze_function_dependencies(body, imported_names)` — detects `module.method()` call patterns
 
 `DcFunctionVisitor` detects API calls by checking if a `CallExpression` is a member expression where the object is an identifier present in `imported_names` (the set of names imported at file level).
 
 **Current limitation:** Only detects direct `importedName.method()` patterns. Doesn't detect:
+
 - Destructured imports used directly: `import { readFile } from 'fs'` → `readFile()`
 - Chained calls: `axios.get().then()`
 - Re-exported or aliased imports
@@ -216,6 +229,7 @@ Two analysis functions:
 ### `src/metrics/structural.rs`
 
 `SmVisitor` tracks:
+
 - Block nesting (push on enter, pop on exit)
 - Return statement count
 - Stops descent at nested function definitions (so inner function's LOC doesn't count toward outer function's LOC)
@@ -260,6 +274,7 @@ Flag severity: `"warning"` or `"error"`. A metric at grade-C boundary → warnin
 `analyze_source_str(source, file_path, options) -> Result<FileQualityReport, String>`
 
 **Two-parse pattern:**
+
 1. First parse: uses `parse_source()` from `parser/ast.rs` to collect import records for file-level dependency analysis
 2. Second parse: creates a fresh `Allocator` + `Parser` for the metric AST visitor pass
 
@@ -324,8 +339,8 @@ pub fn quick_score(source: String, file_name: String) -> Result<String> {
 
 `getBinding()` tries in order:
 
-1. `require('../qualitas_ts.js')` — the platform-aware loader (created manually since `napi build --js` didn't auto-generate it)
-2. `@qualitas-ts/binding-${platform}-${arch}` — platform npm packages
+1. `require('../qualitas_napi.js')` — the platform-aware loader (created manually since `napi build --js` didn't auto-generate it)
+2. `@qualitas/binding-${platform}-${arch}` — platform npm packages
 3. Fallbacks with `-gnu` and `-msvc` suffixes
 4. Throws if nothing found
 
@@ -336,9 +351,9 @@ pub fn quick_score(source: String, file_name: String) -> Result<String> {
 - `analyzeFile(filePath, options?)` — reads file, calls `analyzeSource()`, backfills `location.file` for each function/class (Rust doesn't know the full path during per-source analysis).
 - `analyzeProject(dirPath, options?)` — walks directory recursively, collects `.ts/.tsx/.js/.jsx/.mjs/.cjs` files, runs `analyzeFile()` on each in parallel via `Promise.all()`.
 
-### `qualitas_ts.js`
+### `qualitas_napi.js`
 
-**This file was created manually** because `napi build --js qualitas_ts.js` didn't generate it automatically in the dev environment. It's a platform-detection loader:
+**This file was created manually** because `napi build --js qualitas_napi.js` didn't generate it automatically in the dev environment. It's a platform-detection loader:
 
 ```js
 switch (platform) {
@@ -454,7 +469,7 @@ visitor.visit_program(program);
 **Error:** E0599 trying to match `FunctionBody::FunctionBody(body)`
 **Fix:** `let body: &FunctionBody = &*arrow.body` — direct Box deref
 
-### 6. alternate is Option<Statement>, not Option<Box<Statement>>
+### 6. alternate is `Option<Statement>`, not `Option<Box<Statement>>`
 
 **Error:** E0599 on `alt.as_ref()`
 **Fix:** Use `match alt { ... }` directly without `.as_ref()`
@@ -469,9 +484,9 @@ visitor.visit_program(program);
 **Error:** `Internal Error: Duplicate targets are not allowed: aarch64-apple-darwin`
 **Fix:** Updated package.json `napi` config from deprecated `triples` format to new `targets` array format with `binaryName`
 
-### 9. qualitas_ts.js not generated
+### 9. qualitas_napi.js not generated
 
-**Symptom:** `napi build --js qualitas_ts.js` didn't create the file
+**Symptom:** `napi build --js qualitas_napi.js` didn't create the file
 **Fix:** Created manually as a platform-detection loader
 
 ### 10. SATURATION_K = 0.15 too gentle
@@ -494,7 +509,7 @@ visitor.visit_program(program);
 Located in `#[cfg(test)]` blocks inside each module.
 
 | File | Tests |
-|------|-------|
+| ------ | ------- |
 | `src/metrics/cognitive_flow.rs` | 4 — simple_if_adds_one, nesting_increases_penalty, logical_operator_adds_flat, else_if_adds_flat |
 | `src/metrics/data_complexity.rs` | 2 — empty_body, simple_addition_has_operators |
 | `src/metrics/identifier_refs.rs` | 2 — unused_variable_is_zero, used_variable_has_cost |
@@ -504,7 +519,7 @@ Located in `#[cfg(test)]` blocks inside each module.
 
 ### JavaScript (`npm test`) — 35 tests
 
-Located in `tests/js/scorer.test.ts`. All require native binding (loaded from `qualitas_ts.linux-x64-gnu.node`).
+Located in `tests/js/scorer.test.ts`. All require native binding (loaded from `qualitas_napi.linux-x64-gnu.node`).
 
 | Describe block | Count | What it covers |
 | --- | --- | --- |
@@ -566,15 +581,15 @@ The `npm/` directory has all 5 platform `package.json` stubs. CI is wired to pub
 
 ### Medium priority
 
-4. **Benchmark harness** — add a `benches/` directory with criterion.rs benchmarks for the Rust core. Target: analyze 100-file project in < 500ms.
+1. **Benchmark harness** — add a `benches/` directory with criterion.rs benchmarks for the Rust core. Target: analyze 100-file project in < 500ms.
 
-5. **Class-level metric aggregation** — add sum-of-method CFC/DCI/IRC to `ClassQualityReport` so class-level scope has meaningful metric detail.
+2. **Class-level metric aggregation** — add sum-of-method CFC/DCI/IRC to `ClassQualityReport` so class-level scope has meaningful metric detail.
 
 ### Lower priority
 
-6. **Source maps in TS output** — the `dist/` TypeScript output already generates source maps. Verify they work correctly with the CLI stack traces.
+1. **Source maps in TS output** — the `dist/` TypeScript output already generates source maps. Verify they work correctly with the CLI stack traces.
 
-7. **VSCode extension** — `analyzeSource()` is well-suited for an editor plugin: call on document save, show inline diagnostics. The CLI output format is already rich enough.
+2. **VSCode extension** — `analyzeSource()` is well-suited for an editor plugin: call on document save, show inline diagnostics. The CLI output format is already rich enough.
 
 ---
 
@@ -583,7 +598,7 @@ The `npm/` directory has all 5 platform `package.json` stubs. CI is wired to pub
 ### Setup (fresh session)
 
 ```bash
-cd ~/qualitas-ts
+cd ~/qualitas
 . ~/.cargo/env          # activate Rust toolchain
 
 # Verify state
@@ -591,19 +606,19 @@ cargo test              # should show 17 passed
 npm test                # should show 35 passed
 
 # Make sure the .node file is present (needed for npm test)
-ls qualitas_ts.linux-x64-gnu.node
+ls qualitas_napi.linux-x64-gnu.node
 ```
 
 ### Rebuild after Rust changes
 
 ```bash
-cd ~/qualitas-ts && . ~/.cargo/env
+cd ~/qualitas && . ~/.cargo/env
 
 # Fast debug build (for testing)
-npx napi build --platform --js qualitas_ts.js --dts qualitas_ts.d.ts
+npx napi build --platform --js qualitas_napi.js --dts qualitas_napi.d.ts
 
 # Optimized release build (for publishing)
-npx napi build --platform --release --js qualitas_ts.js --dts qualitas_ts.d.ts
+npx napi build --platform --release --js qualitas_napi.js --dts qualitas_napi.d.ts
 
 cargo test   # verify Rust tests
 npm test     # verify JS integration
@@ -612,14 +627,14 @@ npm test     # verify JS integration
 ### Rebuild after TypeScript changes
 
 ```bash
-cd ~/qualitas-ts
+cd ~/qualitas
 npm run build:ts     # compiles js/ → dist/
 ```
 
 ### Git workflow
 
 ```bash
-cd ~/qualitas-ts
+cd ~/qualitas
 git add <specific files>
 git commit -m "description"
 git push origin main
@@ -631,15 +646,17 @@ The remote is already configured as `https://github.com/An631/qualitas.git`. You
 
 ## Research Background
 
-The PMC paper this tool is based on: https://pmc.ncbi.nlm.nih.gov/articles/PMC9942489/
+The PMC paper this tool is based on: <https://pmc.ncbi.nlm.nih.gov/articles/PMC9942489/>
 
 Key findings:
+
 1. **Halstead Effort** has the highest correlation (r=0.901) with measured cognitive load via EEG
 2. **Eye-tracking revisit count** has the strongest correlation overall (r=0.963) — how often a developer re-reads a variable
 3. **Saturation effect:** once code passes a complexity threshold, additional complexity doesn't proportionally increase difficulty. The brain hits a ceiling.
 4. **Non-monotonicity:** raw CC-Sonar doesn't monotonically predict developer difficulty at all complexity levels
 
 CC-Sonar drawbacks addressed by this tool:
+
 - Ignores data complexity (variable density, Halstead effort) → DCI pillar
 - Ignores identifier tracking cost (how hard it is to follow a variable) → IRC pillar
 - Ignores the saturation effect → exponential saturation formula with k=1.0
@@ -649,6 +666,6 @@ CC-Sonar drawbacks addressed by this tool:
 
 ## Contact / Ownership
 
-Repository: https://github.com/An631/qualitas (private)
+Repository: <https://github.com/An631/qualitas> (private)
 Built in: Microsoft Codespaces environment (office-bohemia codespace)
 Session: Claude Code (claude-sonnet-4-6), February 2026

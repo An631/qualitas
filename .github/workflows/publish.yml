@@ -20,28 +20,28 @@ jobs:
           - name: linux-x64-gnu
             host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact: qualitas-ts.linux-x64-gnu.node
+            artifact: qualitas_napi.linux-x64-gnu.node
 
           - name: linux-arm64-gnu
             host: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            artifact: qualitas-ts.linux-arm64-gnu.node
+            artifact: qualitas_napi.linux-arm64-gnu.node
             cross: true
 
           - name: darwin-x64
             host: macos-latest
             target: x86_64-apple-darwin
-            artifact: qualitas-ts.darwin-x64.node
+            artifact: qualitas_napi.darwin-x64.node
 
           - name: darwin-arm64
             host: macos-latest
             target: aarch64-apple-darwin
-            artifact: qualitas-ts.darwin-arm64.node
+            artifact: qualitas_napi.darwin-arm64.node
 
           - name: win32-x64-msvc
             host: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact: qualitas-ts.win32-x64-msvc.node
+            artifact: qualitas_napi.win32-x64-msvc.node
 
     steps:
       - uses: actions/checkout@v4

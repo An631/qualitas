@@ -1,7 +1,7 @@
 // qualitas.config.js — Project-level configuration for qualitas code quality analysis.
 //
 // All fields are optional. CLI flags override these values.
-// See: https://github.com/qualitas-ts/qualitas-ts
+// See: https://github.com/qualitas/qualitas
 
 module.exports = {
   // Exit code 1 if any function scores below this threshold (0-100)
@@ -11,7 +11,7 @@ module.exports = {
   // Replaces built-in defaults (node_modules, dist, build, .git, coverage, target).
   exclude: [
     'node_modules', 'dist', 'build', '.git', 'coverage', 'target',
-    'qualitas_ts.js', // Auto-generated NAPI binding loader
+    'qualitas_napi.js', // Auto-generated NAPI binding loader
   ],
 
   // Weight profile: 'default' | 'cc-focused' | 'data-focused' | 'strict'

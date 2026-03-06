@@ -120,7 +120,7 @@ function renderFileHeader(report: FileQualityReport): string[] {
   const gradeStr = gradeColor(report.grade, report.grade);
   return [
     '',
-    pc.bold(`qualitas-ts: ${report.filePath}`),
+    pc.bold(`qualitas: ${report.filePath}`),
     `${scoreBar(report.score)}  score: ${report.score.toFixed(1)}  grade: ${gradeStr}`,
     '',
   ];
@@ -197,7 +197,7 @@ function renderProjectHeader(report: ProjectQualityReport): string[] {
   const s = report.summary;
   return [
     '',
-    pc.bold(`qualitas-ts project: ${report.dirPath}`),
+    pc.bold(`qualitas project: ${report.dirPath}`),
     `${scoreBar(report.score)}  score: ${report.score.toFixed(1)}  grade: ${gradeColor(report.grade, report.grade)}`,
     '',
     `  ${s.totalFiles} files  |  ${s.totalFunctions} functions  |  ` +

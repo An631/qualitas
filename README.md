@@ -1,8 +1,8 @@
-# qualitas-ts
+# qualitas
 
 **TypeScript/JavaScript code quality measurement — Quality Score 0–100 based on cognitive science research.**
 
-`qualitas-ts` measures code quality across five research-backed pillars and returns a single 0–100 **Quality Score** (higher = better). It is written in Rust using [oxc_parser](https://oxc.rs/) for native-speed analysis, distributed as a native npm package via [napi-rs](https://napi.rs/), and provides both a programmatic TypeScript API and a CLI.
+`qualitas` measures code quality across five research-backed pillars and returns a single 0–100 **Quality Score** (higher = better). It is written in Rust using [oxc_parser](https://oxc.rs/) for native-speed analysis, distributed as a native npm package via [napi-rs](https://napi.rs/), and provides both a programmatic TypeScript API and a CLI.
 
 ---
 
@@ -22,7 +22,7 @@ CC-Sonar only measures control flow structure. It misses:
 - **Identifier churn** — how often a reader must revisit a variable across a wide scope (eye-tracking research)
 - **Saturation effect** — once code is complex enough, doubling raw CC-Sonar doesn't double perceived difficulty
 
-`qualitas-ts` addresses all three gaps through a five-pillar composite score with an exponential saturation model.
+`qualitas` addresses all three gaps through a five-pillar composite score with an exponential saturation model.
 
 > PMC paper: *"Measuring cognitive complexity in software development"* — <https://pmc.ncbi.nlm.nih.gov/articles/PMC9942489/>
 
@@ -52,18 +52,18 @@ npx qualitas ./src/ --threshold 65
 ## Installation
 
 ```bash
-npm install qualitas-ts
+npm install qualitas
 ```
 
 The correct native binary for your platform is installed automatically as an optional dependency:
 
 | Platform | Package |
 |----------|---------|
-| macOS Apple Silicon | `@qualitas-ts/binding-darwin-arm64` |
-| macOS Intel | `@qualitas-ts/binding-darwin-x64` |
-| Linux x64 (glibc) | `@qualitas-ts/binding-linux-x64-gnu` |
-| Linux arm64 (glibc) | `@qualitas-ts/binding-linux-arm64-gnu` |
-| Windows x64 | `@qualitas-ts/binding-win32-x64-msvc` |
+| macOS Apple Silicon | `@qualitas/binding-darwin-arm64` |
+| macOS Intel | `@qualitas/binding-darwin-x64` |
+| Linux x64 (glibc) | `@qualitas/binding-linux-x64-gnu` |
+| Linux arm64 (glibc) | `@qualitas/binding-linux-arm64-gnu` |
+| Windows x64 | `@qualitas/binding-win32-x64-msvc` |
 
 No build step required when installing from npm.
 
@@ -307,8 +307,8 @@ qualitas ./src/ --flagged-only --verbose
 ## Programmatic API
 
 ```typescript
-import { quickScore, analyzeSource, analyzeFile, analyzeProject } from 'qualitas-ts';
-import type { FileQualityReport, QuickScore, AnalysisOptions } from 'qualitas-ts';
+import { quickScore, analyzeSource, analyzeFile, analyzeProject } from 'qualitas';
+import type { FileQualityReport, QuickScore, AnalysisOptions } from 'qualitas';
 
 // Fast check — returns only score, grade, and top flags (no full metric breakdown)
 const qs: QuickScore = quickScore(`
@@ -470,7 +470,7 @@ Same weights as `default` but tighter grade bands: A≥90, B≥75, C≥60, D≥4
 ## Sample Text Output
 
 ```text
-qualitas-ts: src/processPayment.ts
+qualitas: src/processPayment.ts
 ████░░░░░░  score: 42.0  grade: D
 
   ✗ processPayment()  [D]  score: 42  ← needs refactoring
@@ -495,7 +495,7 @@ File: D — 42.0  — 1 of 3 function(s) need refactoring
 ## Architecture
 
 ```text
-qualitas-ts/
+qualitas/
 ├── src/                    Rust core (compiled to native .node binary)
 │   ├── lib.rs              napi-rs exports: analyze_source(), quick_score()
 │   ├── analyzer.rs         Orchestrator: parse → metrics → score → report
@@ -522,8 +522,8 @@ qualitas-ts/
 │       ├── json.ts         JSON.stringify wrapper
 │       └── markdown.ts     Markdown tables with badge-style scores
 │
-├── qualitas_ts.js          Platform-aware native binding loader (auto-generated)
-├── qualitas_ts.d.ts        TypeScript definitions for the raw napi binding
+├── qualitas_napi.js          Platform-aware native binding loader (auto-generated)
+├── qualitas_napi.d.ts        TypeScript definitions for the raw napi binding
 │
 ├── tests/
 │   ├── fixtures/           Sample .ts files at known quality levels
@@ -585,10 +585,10 @@ cd qualitas
 npm install
 
 # Build native binary (debug, fast)
-npx napi build --platform --js qualitas_ts.js --dts qualitas_ts.d.ts
+npx napi build --platform --js qualitas_napi.js --dts qualitas_napi.d.ts
 
 # Build native binary (release, optimized)
-npx napi build --platform --release --js qualitas_ts.js --dts qualitas_ts.d.ts
+npx napi build --platform --release --js qualitas_napi.js --dts qualitas_napi.d.ts
 
 # Build TypeScript wrapper
 npm run build:ts

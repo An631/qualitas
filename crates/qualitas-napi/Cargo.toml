@@ -5,7 +5,7 @@ edition = "2021"
 description = "Node.js native binding for qualitas (napi-rs)"
 
 [lib]
-name = "qualitas_ts"
+name = "qualitas_napi"
 crate-type = ["cdylib"]
 
 [dependencies]

@@ -74,7 +74,7 @@ pub fn parse_source(source: &str, file_name: &str) -> Result<ParsedFile, String>
             .map(|e| e.to_string())
             .collect::<Vec<_>>()
             .join("; ");
-        eprintln!("qualitas-ts parse warning for {file_name}: {msg}");
+        eprintln!("qualitas parse warning for {file_name}: {msg}");
     }
 
     let mut collector = BoundaryCollector {

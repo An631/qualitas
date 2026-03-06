@@ -1,7 +1,7 @@
 {
-  "name": "qualitas-ts",
+  "name": "qualitas",
   "version": "0.1.0",
-  "description": "TypeScript/JavaScript code quality measurement — 5-pillar Quality Score based on CC-Sonar, Halstead, and eye-tracking research",
+  "description": "Multi-language code quality measurement — 5-pillar Quality Score based on CC-Sonar, Halstead, and eye-tracking research",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -15,7 +15,7 @@
     "qualitas": "./bin/qualitas.js"
   },
   "napi": {
-    "binaryName": "qualitas_ts",
+    "binaryName": "qualitas_napi",
     "targets": [
       "x86_64-unknown-linux-gnu",
       "x86_64-unknown-linux-musl",
@@ -26,8 +26,8 @@
     ]
   },
   "scripts": {
-    "build": "napi build --platform --release --js qualitas_ts.js --dts qualitas_ts.d.ts -p qualitas-napi",
-    "build:debug": "napi build --platform --js qualitas_ts.js --dts qualitas_ts.d.ts -p qualitas-napi",
+    "build": "napi build --platform --release --js qualitas_napi.js --dts qualitas_napi.d.ts -p qualitas-napi",
+    "build:debug": "napi build --platform --js qualitas_napi.js --dts qualitas_napi.d.ts -p qualitas-napi",
     "build:ts": "tsc --project tsconfig.build.json",
     "prepublishOnly": "npm run build && npm run build:ts && npm test",
     "verify": "npm run test && npm run lint && npm run format:check && npm run quality:detail",
@@ -50,8 +50,8 @@
   "files": [
     "dist",
     "bin",
-    "qualitas_ts.js",
-    "qualitas_ts.d.ts",
+    "qualitas_napi.js",
+    "qualitas_napi.d.ts",
     "*.node"
   ],
   "keywords": [
@@ -83,17 +83,17 @@
     "typescript": "^5.4.0"
   },
   "optionalDependencies": {
-    "@qualitas-ts/binding-darwin-arm64": "^0.1.0",
-    "@qualitas-ts/binding-darwin-x64": "^0.1.0",
-    "@qualitas-ts/binding-linux-arm64-gnu": "^0.1.0",
-    "@qualitas-ts/binding-linux-x64-gnu": "^0.1.0",
-    "@qualitas-ts/binding-win32-x64-msvc": "^0.1.0"
+    "@qualitas/binding-darwin-arm64": "^0.1.0",
+    "@qualitas/binding-darwin-x64": "^0.1.0",
+    "@qualitas/binding-linux-arm64-gnu": "^0.1.0",
+    "@qualitas/binding-linux-x64-gnu": "^0.1.0",
+    "@qualitas/binding-win32-x64-msvc": "^0.1.0"
   },
   "engines": {
     "node": ">=18.0.0"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/qualitas-ts/qualitas-ts"
+    "url": "https://github.com/qualitas/qualitas"
   }
 }

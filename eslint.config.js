@@ -45,6 +45,6 @@ module.exports = [
     },
   },
   {
-    ignores: ['dist/', 'node_modules/', 'target/', 'qualitas_ts.js', 'qualitas_ts.d.ts'],
+    ignores: ['dist/', 'node_modules/', 'target/', 'qualitas_napi.js', 'qualitas_napi.d.ts'],
   },
 ];

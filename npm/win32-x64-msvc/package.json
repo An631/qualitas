@@ -1,18 +1,18 @@
 {
-  "name": "@qualitas-ts/binding-win32-x64-msvc",
+  "name": "@qualitas/binding-win32-x64-msvc",
   "version": "0.1.0",
-  "description": "qualitas-ts native binary for Windows x64 (MSVC)",
-  "keywords": ["qualitas-ts", "napi", "native"],
+  "description": "qualitas native binary for Windows x64 (MSVC)",
+  "keywords": ["qualitas", "napi", "native"],
   "license": "MIT",
   "os": ["win32"],
   "cpu": ["x64"],
-  "main": "qualitas-ts.win32-x64-msvc.node",
+  "main": "qualitas_napi.win32-x64-msvc.node",
   "files": [
-    "qualitas-ts.win32-x64-msvc.node"
+    "qualitas_napi.win32-x64-msvc.node"
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-org/qualitas-ts.git",
+    "url": "https://github.com/qualitas/qualitas.git",
     "directory": "npm/win32-x64-msvc"
   }
 }

@@ -1,19 +1,19 @@
 {
-  "name": "@qualitas-ts/binding-linux-x64-gnu",
+  "name": "@qualitas/binding-linux-x64-gnu",
   "version": "0.1.0",
-  "description": "qualitas-ts native binary for Linux x64 (glibc)",
-  "keywords": ["qualitas-ts", "napi", "native"],
+  "description": "qualitas native binary for Linux x64 (glibc)",
+  "keywords": ["qualitas", "napi", "native"],
   "license": "MIT",
   "os": ["linux"],
   "cpu": ["x64"],
   "libc": ["glibc"],
-  "main": "qualitas-ts.linux-x64-gnu.node",
+  "main": "qualitas_napi.linux-x64-gnu.node",
   "files": [
-    "qualitas-ts.linux-x64-gnu.node"
+    "qualitas_napi.linux-x64-gnu.node"
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-org/qualitas-ts.git",
+    "url": "https://github.com/qualitas/qualitas.git",
     "directory": "npm/linux-x64-gnu"
   }
 }
