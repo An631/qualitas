@@ -9,7 +9,11 @@
       "Bash(ls:*)",
       "Bash(npm run:*)",
       "Bash(where.exe cargo:*)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(/c/Users/aduran/.cargo/bin/cargo test:*)",
+      "Bash(npx jest:*)",
+      "Bash(/c/Users/aduran/.cargo/bin/cargo run:*)",
+      "Bash(/c/Users/aduran/.cargo/bin/cargo build:*)"
     ]
   }
 }

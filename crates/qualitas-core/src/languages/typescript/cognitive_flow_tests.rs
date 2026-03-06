@@ -5,8 +5,9 @@ use oxc_ast::Visit;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
 
+use crate::analyzer::analyze_source_str;
 use crate::metrics::cognitive_flow::compute_cfc;
-use crate::types::CognitiveFlowResult;
+use crate::types::{AnalysisOptions, CognitiveFlowResult};
 
 // ─── AST-based CFC visitor (TypeScript-specific) ────────────────────────────
 
@@ -277,5 +278,47 @@ fn ts_function_with_5_params_flagged() {
         func.param_count, 5,
         "Expected param_count=5, got {}",
         func.param_count,
+    );
+}
+
+#[test]
+fn ts_early_return_beats_if_else() {
+    let early_return = r"
+function grade(score: number): string {
+    if (score >= 80) { return 'A'; }
+    if (score >= 65) { return 'B'; }
+    if (score >= 50) { return 'C'; }
+    if (score >= 35) { return 'D'; }
+    return 'F';
+}
+";
+    let if_else = r"
+function grade(score: number): string {
+    if (score >= 80) {
+        return 'A';
+    } else if (score >= 65) {
+        return 'B';
+    } else if (score >= 50) {
+        return 'C';
+    } else if (score >= 35) {
+        return 'D';
+    } else {
+        return 'F';
+    }
+}
+";
+    let opts = AnalysisOptions::default();
+    let early_score = analyze_source_str(early_return, "early.ts", &opts)
+        .unwrap()
+        .functions[0]
+        .score;
+    let ifelse_score = analyze_source_str(if_else, "ifelse.ts", &opts)
+        .unwrap()
+        .functions[0]
+        .score;
+
+    assert!(
+        early_score > ifelse_score,
+        "Early return ({early_score:.1}) should score higher than if/else ({ifelse_score:.1})",
     );
 }

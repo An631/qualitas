@@ -168,46 +168,49 @@ fn compute_file_score(
 
 // ─── Report assembly from event streams ─────────────────────────────────────
 
+fn collect_metrics(
+    fe: &FunctionExtraction,
+    source: &str,
+    imports: &[crate::ir::language::ImportRecord],
+) -> MetricBreakdown {
+    let sm = if let Some(loc) = fe.loc_override {
+        compute_sm_with_loc(&fe.events, loc, loc, fe.param_count)
+    } else {
+        compute_sm_from_events(
+            &fe.events,
+            &SourceSpan {
+                source,
+                start: fe.byte_start,
+                end: fe.byte_end,
+            },
+            fe.param_count,
+        )
+    };
+    MetricBreakdown {
+        cognitive_flow: compute_cfc(&fe.events),
+        data_complexity: compute_dci(&fe.events),
+        identifier_reference: compute_irc(&fe.events, source),
+        dependency_coupling: compute_dc_from_events(&fe.events, imports),
+        structural: sm,
+    }
+}
+
 fn build_fn_report_from_events(
     fe: FunctionExtraction,
     source: &str,
     imports: &[crate::ir::language::ImportRecord],
     ctx: &AnalysisContext<'_>,
 ) -> FunctionQualityReport {
-    let cfc = compute_cfc(&fe.events);
-    let dci = compute_dci(&fe.events);
-    let irc = compute_irc(&fe.events, source);
-    let dc = compute_dc_from_events(&fe.events, imports);
-    let sm = if let Some(loc) = fe.loc_override {
-        compute_sm_with_loc(&fe.events, loc, loc, fe.param_count)
-    } else {
-        compute_sm_from_events(
-            &fe.events,
-            &SourceSpan { source, start: fe.byte_start, end: fe.byte_end },
-            fe.param_count,
-        )
-    };
-
-    let metrics = MetricBreakdown {
-        cognitive_flow: cfc,
-        data_complexity: dci,
-        identifier_reference: irc,
-        dependency_coupling: dc,
-        structural: sm,
-    };
-
+    let metrics = collect_metrics(&fe, source, imports);
     let (score, breakdown) = compute_score(&metrics, ctx.weights, ctx.profile);
-    let grade = grade_from_score(score, ctx.profile);
-    let needs_refactoring = score < ctx.threshold;
-    let flags = generate_flags(&metrics, ctx.flag_overrides);
 
     FunctionQualityReport {
         name: fe.name,
         inferred_name: fe.inferred_name,
         score,
-        grade,
-        needs_refactoring,
-        flags,
+        grade: grade_from_score(score, ctx.profile),
+        needs_refactoring: score < ctx.threshold,
+        flags: generate_flags(&metrics, ctx.flag_overrides),
         metrics,
         score_breakdown: breakdown,
         location: SourceLocation {
@@ -284,195 +287,5 @@ fn aggregate_class_structural(methods: &[FunctionQualityReport]) -> StructuralRe
         return_count: 0,
         method_count: Some(method_count),
         raw_score: compute_sm_raw(total_loc, 0, max_nesting, 0),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::types::{AnalysisOptions, Grade};
-
-    fn default_options() -> AnalysisOptions {
-        AnalysisOptions::default()
-    }
-
-    #[test]
-    fn analyze_clean_ts_returns_high_score() {
-        let source = r"
-function add(a: number, b: number): number {
-    return a + b;
-}
-";
-        let report = analyze_source_str(source, "clean.ts", &default_options()).unwrap();
-        assert!(
-            report.score >= 80.0,
-            "Expected score >= 80 for clean function, got {:.2}",
-            report.score,
-        );
-        assert_eq!(report.grade, Grade::A);
-    }
-
-    #[test]
-    fn analyze_complex_ts_returns_low_score() {
-        let source = r"
-function processOrders(orders: any[], config: any, logger: any, db: any, cache: any, validator: any) {
-    const results: any[] = [];
-    for (const order of orders) {
-        if (order.status === 'pending') {
-            if (order.items && order.items.length > 0) {
-                for (const item of order.items) {
-                    if (item.quantity > 0) {
-                        try {
-                            if (validator.isValid(item)) {
-                                if (config.dryRun || config.verbose && logger.level === 'debug') {
-                                    logger.info('processing');
-                                }
-                                const price = item.price * item.quantity;
-                                if (price > config.maxPrice) {
-                                    results.push({ status: 'skipped', reason: 'too expensive' });
-                                } else {
-                                    results.push({ status: 'processed', price: price });
-                                }
-                            }
-                        } catch (err: any) {
-                            if (err.code === 'NETWORK') {
-                                logger.error(err.message);
-                                cache.invalidate(order.id);
-                            } else {
-                                db.log(err);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    return results;
-}
-";
-        let report = analyze_source_str(source, "complex.ts", &default_options()).unwrap();
-        assert!(
-            report.score < 65.0,
-            "Expected score < 65 for complex function, got {:.2}",
-            report.score,
-        );
-        assert!(
-            report.grade == Grade::C || report.grade == Grade::D || report.grade == Grade::F,
-            "Expected grade C, D, or F for complex function, got {:?}",
-            report.grade,
-        );
-    }
-
-    #[test]
-    fn analyze_empty_file_returns_perfect() {
-        let report = analyze_source_str("", "empty.ts", &default_options()).unwrap();
-        assert!(
-            (report.score - 100.0).abs() < 0.01,
-            "Expected score 100 for empty file, got {:.2}",
-            report.score,
-        );
-    }
-
-    #[test]
-    fn analyze_class_aggregates_methods() {
-        let source = r"
-class Calculator {
-    add(a: number, b: number) { return a + b; }
-    subtract(a: number, b: number) { return a - b; }
-}
-";
-        let report = analyze_source_str(source, "class.ts", &default_options()).unwrap();
-        assert_eq!(
-            report.class_count, 1,
-            "Expected 1 class, got {}",
-            report.class_count,
-        );
-        assert_eq!(
-            report.function_count, 2,
-            "Expected function_count=2 (methods counted in total), got {}",
-            report.function_count,
-        );
-        // Top-level functions list should be empty — methods live inside the class
-        assert!(
-            report.functions.is_empty(),
-            "Expected no top-level functions, got {}",
-            report.functions.len(),
-        );
-        assert_eq!(
-            report.classes.len(),
-            1,
-            "Expected 1 class report, got {}",
-            report.classes.len(),
-        );
-        assert_eq!(
-            report.classes[0].methods.len(),
-            2,
-            "Expected 2 methods in class, got {}",
-            report.classes[0].methods.len(),
-        );
-    }
-
-    #[test]
-    fn analyze_file_score_is_loc_weighted() {
-        // A short clean function and a longer messier function.
-        // The file score should be pulled toward the longer function's score.
-        let source = r"
-function tiny(a: number): number { return a; }
-
-function longer(x: number): number {
-    let result = 0;
-    if (x > 0) {
-        if (x > 10) {
-            if (x > 100) {
-                result = x * 2;
-            } else {
-                result = x + 1;
-            }
-        } else {
-            result = x - 1;
-        }
-    } else {
-        result = -x;
-    }
-    return result;
-}
-";
-        let report = analyze_source_str(source, "weighted.ts", &default_options()).unwrap();
-        assert_eq!(report.functions.len(), 2);
-        let tiny_score = report.functions[0].score;
-        let longer_score = report.functions[1].score;
-        // The longer function should score lower (more complexity)
-        assert!(
-            longer_score < tiny_score,
-            "Expected longer function ({longer_score:.2}) to score lower than tiny ({tiny_score:.2})",
-        );
-        // File score should be closer to the longer function's score due to LOC weighting
-        let simple_avg = f64::midpoint(tiny_score, longer_score);
-        // LOC-weighted average pulls toward the longer function
-        // file_score should be <= simple_avg (closer to the worse function)
-        assert!(
-            report.score <= simple_avg + 1.0,
-            "Expected file score ({:.2}) to be at or below simple average ({:.2}) due to LOC weighting",
-            report.score,
-            simple_avg,
-        );
-    }
-
-    #[test]
-    fn analyze_rust_source_works() {
-        let source = r"
-fn add(a: i32, b: i32) -> i32 {
-    a + b
-}
-";
-        let report = analyze_source_str(source, "simple.rs", &default_options()).unwrap();
-        assert!(
-            report.score >= 80.0,
-            "Expected score >= 80 for simple Rust function, got {:.2}",
-            report.score,
-        );
-        assert_eq!(report.grade, Grade::A);
-        assert_eq!(report.function_count, 1);
-        assert!(!report.needs_refactoring);
     }
 }

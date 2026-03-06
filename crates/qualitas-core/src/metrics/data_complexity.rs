@@ -95,22 +95,19 @@ fn collect_halstead_counts(events: &[QualitasEvent]) -> HalsteadCounts {
 
 /// Compute DCI (Halstead metrics) from a stream of IR events (language-agnostic).
 pub fn compute_dci(events: &[QualitasEvent]) -> DataComplexityResult {
-    let halstead = collect_halstead_counts(events);
-
-    let eta1 = f64::from(halstead.distinct_operators);
-    let eta2 = f64::from(halstead.distinct_operands);
-    let n1 = f64::from(halstead.total_operators);
-    let n2 = f64::from(halstead.total_operands);
-
-    let (volume, difficulty, effort) = compute_halstead_metrics(eta1, eta2, n1, n2);
-    let raw_score = compute_halstead_score(difficulty, volume);
-
+    let h = collect_halstead_counts(events);
+    let (volume, difficulty, effort) = compute_halstead_metrics(
+        f64::from(h.distinct_operators),
+        f64::from(h.distinct_operands),
+        f64::from(h.total_operators),
+        f64::from(h.total_operands),
+    );
     DataComplexityResult {
-        halstead,
+        halstead: h,
         difficulty,
         volume,
         effort,
-        raw_score,
+        raw_score: compute_halstead_score(difficulty, volume),
     }
 }
 

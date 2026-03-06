@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use colored::Colorize;
 
+use qualitas_core::scorer::thresholds::grade_from_score;
 use qualitas_core::types::{
     ClassQualityReport, FileQualityReport, FlagType, FunctionQualityReport, Grade,
     ProjectQualityReport, RefactoringFlag, Severity,
@@ -63,17 +64,7 @@ fn score_bar(score: f64) -> String {
 }
 
 fn score_to_grade(score: f64) -> Grade {
-    if score >= 80.0 {
-        Grade::A
-    } else if score >= 65.0 {
-        Grade::B
-    } else if score >= 50.0 {
-        Grade::C
-    } else if score >= 35.0 {
-        Grade::D
-    } else {
-        Grade::F
-    }
+    grade_from_score(score, None)
 }
 
 fn grade_index(grade: Grade) -> usize {
@@ -321,51 +312,80 @@ fn render_pillar_health(fns: &[&FunctionQualityReport]) -> Vec<String> {
     lines
 }
 
+struct PillarDescriptor {
+    name: &'static str,
+    extract: fn(&FunctionQualityReport) -> f64,
+    zone: ZoneThresholds,
+}
+
+const PILLAR_DESCRIPTORS: [PillarDescriptor; 6] = [
+    PillarDescriptor {
+        name: "Cognitive Flow",
+        extract: |f| f64::from(f.metrics.cognitive_flow.score),
+        zone: ZoneThresholds {
+            warn: 13.0,
+            error: 19.0,
+            max_display: 30.0,
+            decimals: 0,
+        },
+    },
+    PillarDescriptor {
+        name: "Data Complexity",
+        extract: |f| f.metrics.data_complexity.difficulty,
+        zone: ZoneThresholds {
+            warn: 26.0,
+            error: 41.0,
+            max_display: 60.0,
+            decimals: 1,
+        },
+    },
+    PillarDescriptor {
+        name: "Identifier Refs",
+        extract: |f| f.metrics.identifier_reference.total_irc,
+        zone: ZoneThresholds {
+            warn: 41.0,
+            error: 71.0,
+            max_display: 100.0,
+            decimals: 1,
+        },
+    },
+    PillarDescriptor {
+        name: "Dep. Coupling",
+        extract: |f| f64::from(f.metrics.dependency_coupling.import_count),
+        zone: ZoneThresholds {
+            warn: 10.0,
+            error: 15.0,
+            max_display: 20.0,
+            decimals: 0,
+        },
+    },
+    PillarDescriptor {
+        name: "Structural LOC",
+        extract: |f| f64::from(f.metrics.structural.loc),
+        zone: ZoneThresholds {
+            warn: 41.0,
+            error: 61.0,
+            max_display: 80.0,
+            decimals: 0,
+        },
+    },
+    PillarDescriptor {
+        name: "Structural Params",
+        extract: |f| f64::from(f.metrics.structural.parameter_count),
+        zone: ZoneThresholds {
+            warn: 4.0,
+            error: 5.0,
+            max_display: 8.0,
+            decimals: 0,
+        },
+    },
+];
+
 fn render_all_pillar_rows(fns: &[&FunctionQualityReport]) -> Vec<String> {
-    let z = |w, e, m, d| ZoneThresholds {
-        warn: w,
-        error: e,
-        max_display: m,
-        decimals: d,
-    };
-    let mut rows = Vec::new();
-    rows.extend(pillar_zone_row(
-        "Cognitive Flow",
-        fns,
-        |f| f64::from(f.metrics.cognitive_flow.score),
-        &z(13.0, 19.0, 30.0, 0),
-    ));
-    rows.extend(pillar_zone_row(
-        "Data Complexity",
-        fns,
-        |f| f.metrics.data_complexity.difficulty,
-        &z(26.0, 41.0, 60.0, 1),
-    ));
-    rows.extend(pillar_zone_row(
-        "Identifier Refs",
-        fns,
-        |f| f.metrics.identifier_reference.total_irc,
-        &z(41.0, 71.0, 100.0, 1),
-    ));
-    rows.extend(pillar_zone_row(
-        "Dep. Coupling",
-        fns,
-        |f| f64::from(f.metrics.dependency_coupling.import_count),
-        &z(10.0, 15.0, 20.0, 0),
-    ));
-    rows.extend(pillar_zone_row(
-        "Structural LOC",
-        fns,
-        |f| f64::from(f.metrics.structural.loc),
-        &z(41.0, 61.0, 80.0, 0),
-    ));
-    rows.extend(pillar_zone_row(
-        "Structural Params",
-        fns,
-        |f| f64::from(f.metrics.structural.parameter_count),
-        &z(4.0, 5.0, 8.0, 0),
-    ));
-    rows
+    PILLAR_DESCRIPTORS
+        .iter()
+        .flat_map(|desc| pillar_zone_row(desc.name, fns, desc.extract, &desc.zone))
+        .collect()
 }
 
 /// Render a pillar as a colored zone bar with avg/median markers.
@@ -465,19 +485,49 @@ fn place_marker(chars: &mut [String], pos: usize, width: usize, symbol: &str) {
 
 fn build_pillar_deductions(fns: &[&FunctionQualityReport]) -> Vec<(&'static str, f64, f64)> {
     vec![
-        ("Cognitive Flow", loc_weighted(fns, |f| f.score_breakdown.cfc_penalty), 30.0),
-        ("Data Complexity", loc_weighted(fns, |f| f.score_breakdown.dci_penalty), 25.0),
-        ("Identifier References", loc_weighted(fns, |f| f.score_breakdown.irc_penalty), 20.0),
-        ("Dependency Coupling", loc_weighted(fns, |f| f.score_breakdown.dc_penalty), 15.0),
-        ("Structural", loc_weighted(fns, |f| f.score_breakdown.sm_penalty), 10.0),
+        (
+            "Cognitive Flow",
+            loc_weighted(fns, |f| f.score_breakdown.cfc_penalty),
+            30.0,
+        ),
+        (
+            "Data Complexity",
+            loc_weighted(fns, |f| f.score_breakdown.dci_penalty),
+            25.0,
+        ),
+        (
+            "Identifier References",
+            loc_weighted(fns, |f| f.score_breakdown.irc_penalty),
+            20.0,
+        ),
+        (
+            "Dependency Coupling",
+            loc_weighted(fns, |f| f.score_breakdown.dc_penalty),
+            15.0,
+        ),
+        (
+            "Structural",
+            loc_weighted(fns, |f| f.score_breakdown.sm_penalty),
+            10.0,
+        ),
     ]
 }
 
 fn format_pillar_row(name: &str, penalty: f64, max_w: f64) -> String {
     let fill = (penalty / max_w * 10.0).round().min(10.0) as usize;
-    let bar = format!("{}{}", "\u{2588}".repeat(fill), "\u{2591}".repeat(10 - fill));
+    let bar = format!(
+        "{}{}",
+        "\u{2588}".repeat(fill),
+        "\u{2591}".repeat(10 - fill)
+    );
     let cfn = penalty_color(penalty, max_w);
-    format!("  {:<24} {:<13} {:>4.1} / {:.0} pts", name, cfn(&bar), penalty, max_w)
+    format!(
+        "  {:<24} {:<13} {:>4.1} / {:.0} pts",
+        name,
+        cfn(&bar),
+        penalty,
+        max_w
+    )
 }
 
 fn render_score_deductions(
@@ -491,7 +541,10 @@ fn render_score_deductions(
     let pillars = build_pillar_deductions(fns);
     let mut lines = vec![
         section_header("Score Deductions (points lost from 100)"),
-        format!("  {}", "Each pillar deducts up to its weight. Weighted by lines of code.".dimmed()),
+        format!(
+            "  {}",
+            "Each pillar deducts up to its weight. Weighted by lines of code.".dimmed()
+        ),
     ];
 
     for (name, penalty, max_w) in &pillars {
@@ -500,7 +553,9 @@ fn render_score_deductions(
 
     lines.push(format!(
         "  {:<24} {:<13} {:>4.1} / 100 pts",
-        "Total deducted".bold(), "", 100.0 - report.score
+        "Total deducted".bold(),
+        "",
+        100.0 - report.score
     ));
     lines.push(String::new());
     lines
@@ -539,22 +594,27 @@ fn loc_weighted(
 
 // ─── Generic: Grade Histogram ────────────────────────────────────────────────
 
+const GRADE_LABELS: [(Grade, &str); 5] = [
+    (Grade::A, "A"),
+    (Grade::B, "B"),
+    (Grade::C, "C"),
+    (Grade::D, "D"),
+    (Grade::F, "F"),
+];
+
 fn render_grade_histogram(label: &str, items: &[ScopeItem]) -> Vec<String> {
     let counts = count_grades(items);
-    let max_c = *counts.iter().max().unwrap_or(&1);
-    let max_c = max_c.max(1);
+    let max_c = counts.iter().copied().max().unwrap_or(1).max(1);
     let total = items.len() as u32;
 
-    let entries = [
-        HistogramEntry { grade: Grade::A, label: "A", count: counts[0] },
-        HistogramEntry { grade: Grade::B, label: "B", count: counts[1] },
-        HistogramEntry { grade: Grade::C, label: "C", count: counts[2] },
-        HistogramEntry { grade: Grade::D, label: "D", count: counts[3] },
-        HistogramEntry { grade: Grade::F, label: "F", count: counts[4] },
-    ];
     let mut lines = vec![section_header(&format!("Grade Distribution ({label})"))];
-    for entry in &entries {
-        lines.push(format_histogram_row(entry, max_c, total));
+    for (i, &(grade, lbl)) in GRADE_LABELS.iter().enumerate() {
+        let entry = HistogramEntry {
+            grade,
+            label: lbl,
+            count: counts[i],
+        };
+        lines.push(format_histogram_row(&entry, max_c, total));
     }
     lines.push(String::new());
     lines

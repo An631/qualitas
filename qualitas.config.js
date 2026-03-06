@@ -17,6 +17,8 @@ module.exports = {
     'coverage',
     'target',
     'qualitas_napi.js', // Auto-generated NAPI binding loader
+    'eslint.config.js', // Config file, not application code
+    'qualitas.config.js', // Config file, not application code
   ],
 
   // Weight profile: 'default' | 'cc-focused' | 'data-focused' | 'strict'
@@ -26,7 +28,7 @@ module.exports = {
   // 'warn'  → fail on any warning or error flag (zero tolerance)
   // 'error' → fail only on error-level flags
   // Omit or set to false to disable (default: score-only threshold)
-  failOnFlags: 'error',
+  failOnFlags: 'warn',
 
   /** Flag configuration. Each flag can be:
    *   true            → enabled with default thresholds
@@ -34,11 +36,7 @@ module.exports = {
    *   { warn, error } → enabled with custom thresholds
    * Flags not listed use their built-in defaults (all enabled except excessiveReturns).
    */
-  // flags: {
-  //   tooManyParams: { warn: 5, error: 7 },
-  //   tooLong: { warn: 60, error: 100 },
-  //   excessiveReturns: true, // re-enable (disabled by default)
-  // },
+  // flags: {},
 
   /**
    * Directories to exclude from analysis. Replaces built-in defaults when set.

@@ -170,7 +170,11 @@ mod tests {
     fn event_empty_function() {
         let source = "function f() {}";
         let events: Vec<QualitasEvent> = vec![];
-        let span = SourceSpan { source, start: 0, end: source.len() as u32 };
+        let span = SourceSpan {
+            source,
+            start: 0,
+            end: source.len() as u32,
+        };
         let r = compute_sm_from_events(&events, &span, 0);
         assert_eq!(r.parameter_count, 0);
         assert_eq!(r.return_count, 0);
@@ -186,7 +190,11 @@ mod tests {
             QualitasEvent::NestingExit,
             QualitasEvent::ReturnStatement, // return 0
         ];
-        let span = SourceSpan { source, start: 0, end: source.len() as u32 };
+        let span = SourceSpan {
+            source,
+            start: 0,
+            end: source.len() as u32,
+        };
         let r = compute_sm_from_events(&events, &span, 1);
         assert_eq!(r.parameter_count, 1);
         assert_eq!(r.return_count, 2);
@@ -204,7 +212,11 @@ mod tests {
             QualitasEvent::NestingExit,
             QualitasEvent::NestingExit,
         ];
-        let span = SourceSpan { source, start: 0, end: source.len() as u32 };
+        let span = SourceSpan {
+            source,
+            start: 0,
+            end: source.len() as u32,
+        };
         let r = compute_sm_from_events(&events, &span, 0);
         assert_eq!(r.max_nesting_depth, 3);
     }

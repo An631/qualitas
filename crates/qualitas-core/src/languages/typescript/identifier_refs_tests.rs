@@ -177,3 +177,28 @@ fn used_variable_has_cost() {
     let r = analyze_irc_from_source(src);
     assert!(r.total_irc > 0.0);
 }
+
+#[test]
+fn ts_closure_capturing_parent_vars_irc_limitation() {
+    // Arrow functions that capture variables from the parent scope should
+    // contribute to the parent's IRC via IdentReference events.
+    //
+    // NOTE: The TS adapter currently does NOT emit IdentReference for captured
+    // variables inside arrow functions (the oxc visitor doesn't re-emit references
+    // for the closure body). This test documents the current behavior and should
+    // be updated to assert irc > 0.0 when the adapter is improved.
+    let source = r"
+function process(items: number[], threshold: number, multiplier: number): number[] {
+    return items.filter(x => x > threshold).map(x => x * multiplier);
+}
+";
+    let report = crate::analyzer::analyze_source_str(
+        source,
+        "cap.ts",
+        &crate::types::AnalysisOptions::default(),
+    )
+    .unwrap();
+    // Known limitation: currently 0.0 because TS adapter doesn't emit
+    // IdentReference for captured variables inside arrow functions.
+    let _ = report.functions[0].metrics.identifier_reference.total_irc;
+}

@@ -39,22 +39,21 @@ function renderFunctionsTable(functions: FunctionQualityReport[]): string[] {
   return lines;
 }
 
+function renderFnRecommendation(fn: FunctionQualityReport): string[] {
+  const lines = [`#### \`${fn.name}\` (score: ${fn.score.toFixed(1)})`];
+  for (const flag of fn.flags) {
+    const icon = flag.severity === 'error' ? '🔴' : '🟡';
+    lines.push(`- ${icon} **${flag.message}**`);
+    lines.push(`  - 💡 ${flag.suggestion}`);
+  }
+  lines.push('');
+  return lines;
+}
+
 function renderRecommendationsSection(functions: FunctionQualityReport[]): string[] {
   const flagged = functions.filter((f) => f.flags.length > 0);
   if (flagged.length === 0) return [];
-  const lines: string[] = [];
-  lines.push('### Refactoring Recommendations');
-  lines.push('');
-  for (const fn of flagged) {
-    lines.push(`#### \`${fn.name}\` (score: ${fn.score.toFixed(1)})`);
-    for (const flag of fn.flags) {
-      const icon = flag.severity === 'error' ? '🔴' : '🟡';
-      lines.push(`- ${icon} **${flag.message}**`);
-      lines.push(`  - 💡 ${flag.suggestion}`);
-    }
-    lines.push('');
-  }
-  return lines;
+  return ['### Refactoring Recommendations', '', ...flagged.flatMap(renderFnRecommendation)];
 }
 
 export function renderMarkdownReport(report: FileQualityReport): string {

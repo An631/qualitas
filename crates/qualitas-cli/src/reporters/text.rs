@@ -1,5 +1,6 @@
 use colored::Colorize;
 
+use qualitas_core::scorer::thresholds::grade_from_score;
 use qualitas_core::types::{
     ClassQualityReport, FileQualityReport, FunctionQualityReport, Grade, ProjectQualityReport,
     RefactoringFlag, Severity,
@@ -33,20 +34,6 @@ fn grade_color(grade: Grade, text: &str) -> String {
     }
 }
 
-fn score_to_grade(score: f64) -> Grade {
-    if score >= 80.0 {
-        Grade::A
-    } else if score >= 65.0 {
-        Grade::B
-    } else if score >= 50.0 {
-        Grade::C
-    } else if score >= 35.0 {
-        Grade::D
-    } else {
-        Grade::F
-    }
-}
-
 fn score_bar(score: f64) -> String {
     let filled = (score / 10.0).round() as usize;
     let filled = filled.min(10);
@@ -55,7 +42,7 @@ fn score_bar(score: f64) -> String {
         "\u{2588}".repeat(filled),
         "\u{2591}".repeat(10 - filled)
     );
-    grade_color(score_to_grade(score), &bar)
+    grade_color(grade_from_score(score, None), &bar)
 }
 
 // ─── Flag rendering ───────────────────────────────────────────────────────────
@@ -101,9 +88,9 @@ fn render_function(func: &FunctionQualityReport, opts: &TextReporterOptions) -> 
         lines.push(format!(
             "      CFC: {} ({})  DCI: {:.1} ({})  IRC: {:.1}  Params: {}  LOC: {}",
             m.cognitive_flow.score,
-            score_to_grade(100.0 - f64::from(m.cognitive_flow.score) * 4.0),
+            grade_from_score(100.0 - f64::from(m.cognitive_flow.score) * 4.0, None),
             m.data_complexity.difficulty,
-            score_to_grade(100.0 - m.data_complexity.difficulty),
+            grade_from_score(100.0 - m.data_complexity.difficulty, None),
             m.identifier_reference.total_irc,
             m.structural.parameter_count,
             m.structural.loc,
@@ -307,12 +294,25 @@ fn render_project_header(report: &ProjectQualityReport) -> Vec<String> {
 
 // ─── Extracted helper: render worst functions section ─────────────────────────
 
+fn format_worst_fn_line(func: &FunctionQualityReport) -> String {
+    let icon = if func.needs_refactoring {
+        "\u{2717}".red().to_string()
+    } else {
+        "\u{2713}".green().to_string()
+    };
+    format!(
+        "    {icon} {}  {}()  score: {}  {}",
+        func.location.file,
+        func.name.bold(),
+        func.score as u32,
+        grade_color(func.grade, &func.grade.to_string()),
+    )
+}
+
 fn render_worst_functions_section(
     report: &ProjectQualityReport,
     flagged_only: bool,
 ) -> Vec<String> {
-    let mut lines = Vec::new();
-
     let funcs: Vec<&FunctionQualityReport> = if flagged_only {
         report
             .worst_functions
@@ -325,32 +325,18 @@ fn render_worst_functions_section(
     };
 
     if funcs.is_empty() {
-        return lines;
+        return vec![];
     }
 
-    lines.push(String::new());
     let header = if flagged_only {
         "  Functions with flags:"
     } else {
         "  Worst functions:"
     };
-    lines.push(header.bold().to_string());
-
+    let mut lines = vec![String::new(), header.bold().to_string()];
     for func in &funcs {
-        let icon = if func.needs_refactoring {
-            "\u{2717}".red().to_string()
-        } else {
-            "\u{2713}".green().to_string()
-        };
-        lines.push(format!(
-            "    {icon} {}  {}()  score: {}  {}",
-            func.location.file,
-            func.name.bold(),
-            func.score as u32,
-            grade_color(func.grade, &func.grade.to_string()),
-        ));
+        lines.push(format_worst_fn_line(func));
     }
-
     lines
 }
 

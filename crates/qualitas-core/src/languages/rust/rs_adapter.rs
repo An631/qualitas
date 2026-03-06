@@ -137,28 +137,21 @@ fn collect_use_group(g: &syn::UseGroup, prefix: &str, names: &mut Vec<String>) {
 
 // ─── Pure mapping: BinOp → operator name ─────────────────────────────────────
 
+/// Map a BinOp to a kind tag string for table lookups.
 fn binary_op_name(op: &BinOp) -> &'static str {
-    binary_op_name_simple(op)
-        .or_else(|| binary_op_name_comparison(op))
-        .or_else(|| binary_op_name_assign(op))
+    binary_op_arithmetic(op)
+        .or_else(|| binary_op_comparison(op))
+        .or_else(|| binary_op_assign(op))
         .unwrap_or("?op")
 }
 
-/// Arithmetic binary operators.
-fn binary_op_name_arithmetic(op: &BinOp) -> Option<&'static str> {
+fn binary_op_arithmetic(op: &BinOp) -> Option<&'static str> {
     match op {
         BinOp::Add(_) => Some("+"),
         BinOp::Sub(_) => Some("-"),
         BinOp::Mul(_) => Some("*"),
         BinOp::Div(_) => Some("/"),
         BinOp::Rem(_) => Some("%"),
-        _ => None,
-    }
-}
-
-/// Logic and bitwise binary operators.
-fn binary_op_name_logic_and_bitwise(op: &BinOp) -> Option<&'static str> {
-    match op {
         BinOp::And(_) => Some("&&"),
         BinOp::Or(_) => Some("||"),
         BinOp::BitXor(_) => Some("^"),
@@ -170,13 +163,7 @@ fn binary_op_name_logic_and_bitwise(op: &BinOp) -> Option<&'static str> {
     }
 }
 
-/// Arithmetic and logic binary operators.
-fn binary_op_name_simple(op: &BinOp) -> Option<&'static str> {
-    binary_op_name_arithmetic(op).or_else(|| binary_op_name_logic_and_bitwise(op))
-}
-
-/// Comparison binary operators.
-fn binary_op_name_comparison(op: &BinOp) -> Option<&'static str> {
+fn binary_op_comparison(op: &BinOp) -> Option<&'static str> {
     match op {
         BinOp::Eq(_) => Some("=="),
         BinOp::Lt(_) => Some("<"),
@@ -188,21 +175,13 @@ fn binary_op_name_comparison(op: &BinOp) -> Option<&'static str> {
     }
 }
 
-/// Arithmetic compound assignment operators.
-fn binary_op_name_arith_assign(op: &BinOp) -> Option<&'static str> {
+fn binary_op_assign(op: &BinOp) -> Option<&'static str> {
     match op {
         BinOp::AddAssign(_) => Some("+="),
         BinOp::SubAssign(_) => Some("-="),
         BinOp::MulAssign(_) => Some("*="),
         BinOp::DivAssign(_) => Some("/="),
         BinOp::RemAssign(_) => Some("%="),
-        _ => None,
-    }
-}
-
-/// Bitwise compound assignment operators.
-fn binary_op_name_bit_assign(op: &BinOp) -> Option<&'static str> {
-    match op {
         BinOp::BitXorAssign(_) => Some("^="),
         BinOp::BitAndAssign(_) => Some("&="),
         BinOp::BitOrAssign(_) => Some("|="),
@@ -210,11 +189,6 @@ fn binary_op_name_bit_assign(op: &BinOp) -> Option<&'static str> {
         BinOp::ShrAssign(_) => Some(">>="),
         _ => None,
     }
-}
-
-/// Compound assignment binary operators.
-fn binary_op_name_assign(op: &BinOp) -> Option<&'static str> {
-    binary_op_name_arith_assign(op).or_else(|| binary_op_name_bit_assign(op))
 }
 
 fn unary_op_name(op: &UnOp) -> &'static str {
@@ -237,16 +211,20 @@ fn literal_numeric_name(lit: &Lit) -> Option<String> {
 }
 
 fn literal_text_name(lit: &Lit) -> Option<String> {
-    match lit {
-        Lit::Str(s) => {
-            let val = s.value();
-            Some(val[..val.len().min(32)].to_string())
-        }
-        Lit::Bool(b) => Some(if b.value { "true" } else { "false" }.to_string()),
-        Lit::Char(c) => Some(c.value().to_string()),
-        Lit::Byte(b) => Some(b.value().to_string()),
-        _ => None,
+    if let Lit::Str(s) = lit {
+        let val = s.value();
+        return Some(val[..val.len().min(32)].to_string());
     }
+    if let Lit::Bool(b) = lit {
+        return Some(if b.value { "true" } else { "false" }.to_string());
+    }
+    if let Lit::Char(c) = lit {
+        return Some(c.value().to_string());
+    }
+    if let Lit::Byte(b) = lit {
+        return Some(b.value().to_string());
+    }
+    None
 }
 
 fn literal_to_name(lit: &Lit) -> Option<String> {
@@ -306,6 +284,37 @@ impl<'src> RustExtractor<'src> {
             end_line: span_to_end_line(span),
             param_count,
             is_async,
+            is_generator: false,
+            events: emitter.events,
+            loc_override: None,
+        }
+    }
+}
+
+fn count_typed_params(sig: &syn::Signature) -> u32 {
+    sig.inputs
+        .iter()
+        .filter(|arg| matches!(arg, FnArg::Typed(_)))
+        .count() as u32
+}
+
+impl RustExtractor<'_> {
+    fn build_method_extraction(&self, sig: &syn::Signature, block: &Block) -> FunctionExtraction {
+        let name = sig.ident.to_string();
+        let param_count = count_typed_params(sig);
+        let mut emitter = RustBodyEventEmitter::new(self.source, &name, &self.imported_names);
+        emitter.visit_block(block);
+        let start = sig.fn_token.span;
+        let end = block.brace_token.span.close();
+        FunctionExtraction {
+            name,
+            inferred_name: None,
+            byte_start: span_to_byte_start(self.source, start),
+            byte_end: span_to_byte_end(self.source, end),
+            start_line: span_to_line(start),
+            end_line: span_to_end_line(end),
+            param_count,
+            is_async: sig.asyncness.is_some(),
             is_generator: false,
             events: emitter.events,
             loc_override: None,
@@ -380,35 +389,7 @@ impl<'ast> Visit<'ast> for RustExtractor<'_> {
     }
 
     fn visit_impl_item_fn(&mut self, node: &'ast ImplItemFn) {
-        let name = node.sig.ident.to_string();
-        let param_count = node
-            .sig
-            .inputs
-            .iter()
-            .filter(|arg| matches!(arg, FnArg::Typed(_)))
-            .count() as u32;
-        let is_async = node.sig.asyncness.is_some();
-
-        let mut emitter = RustBodyEventEmitter::new(self.source, &name, &self.imported_names);
-        emitter.visit_block(&node.block);
-
-        let span = node.sig.fn_token.span;
-        let end_span = node.block.brace_token.span.close();
-
-        let fe = FunctionExtraction {
-            name,
-            inferred_name: None,
-            byte_start: span_to_byte_start(self.source, span),
-            byte_end: span_to_byte_end(self.source, end_span),
-            start_line: span_to_line(span),
-            end_line: span_to_end_line(end_span),
-            param_count,
-            is_async,
-            is_generator: false,
-            events: emitter.events,
-            loc_override: None,
-        };
-        self.push_fn(fe);
+        self.push_fn(self.build_method_extraction(&node.sig, &node.block));
     }
 }
 
@@ -559,32 +540,30 @@ impl<'src> RustBodyEventEmitter<'src> {
     // ── Control flow: if, for, while, loop, match ────────────────────────
 
     fn emit_control_flow(&mut self, expr: &Expr) -> bool {
-        match expr {
-            Expr::If(expr_if) => {
-                self.visit_if(expr_if);
-                true
-            }
-            Expr::ForLoop(expr_for) => {
-                self.emit_control_flow_event(ControlFlowKind::ForOf);
-                self.emit_pattern_bindings(&expr_for.pat);
-                self.visit_expr_inner(&expr_for.expr);
-                self.emit_nesting_block(|s| s.visit_block_stmts(&expr_for.body));
-                true
-            }
-            Expr::While(expr_while) => {
-                self.emit_loop_with_cond(&expr_while.cond, &expr_while.body);
-                true
-            }
-            Expr::Loop(expr_loop) => {
-                self.emit_loop_without_cond(&expr_loop.body);
-                true
-            }
-            Expr::Match(expr_match) => {
-                self.emit_match_expr(expr_match);
-                true
-            }
-            _ => false,
+        if let Expr::If(expr_if) = expr {
+            self.visit_if(expr_if);
+            return true;
         }
+        if let Expr::ForLoop(expr_for) = expr {
+            self.emit_control_flow_event(ControlFlowKind::ForOf);
+            self.emit_pattern_bindings(&expr_for.pat);
+            self.visit_expr_inner(&expr_for.expr);
+            self.emit_nesting_block(|s| s.visit_block_stmts(&expr_for.body));
+            return true;
+        }
+        if let Expr::While(expr_while) = expr {
+            self.emit_loop_with_cond(&expr_while.cond, &expr_while.body);
+            return true;
+        }
+        if let Expr::Loop(expr_loop) = expr {
+            self.emit_loop_without_cond(&expr_loop.body);
+            return true;
+        }
+        if let Expr::Match(expr_match) = expr {
+            self.emit_match_expr(expr_match);
+            return true;
+        }
+        false
     }
 
     fn emit_loop_with_cond(&mut self, cond: &Expr, body: &Block) {
@@ -815,28 +794,45 @@ impl<'src> RustBodyEventEmitter<'src> {
     // ── Containers & transparent wrappers ────────────────────────────────
 
     fn emit_containers(&mut self, expr: &Expr) {
-        match expr {
-            // Simple delegations
-            Expr::Block(b) => self.visit_block_stmts(&b.block),
-            Expr::Unsafe(u) => self.visit_block_stmts(&u.block),
-            Expr::Field(f) => self.visit_expr_inner(&f.base),
-            Expr::Paren(p) => self.visit_expr_inner(&p.expr),
-            Expr::Group(g) => self.visit_expr_inner(&g.expr),
-            // Compound containers
-            _ => self.emit_compound_containers(expr),
+        if let Expr::Block(b) = expr {
+            return self.visit_block_stmts(&b.block);
         }
+        if let Expr::Unsafe(u) = expr {
+            return self.visit_block_stmts(&u.block);
+        }
+        if let Expr::Field(f) = expr {
+            return self.visit_expr_inner(&f.base);
+        }
+        if let Expr::Paren(p) = expr {
+            return self.visit_expr_inner(&p.expr);
+        }
+        if let Expr::Group(g) = expr {
+            return self.visit_expr_inner(&g.expr);
+        }
+        self.emit_compound_containers(expr);
     }
 
     fn emit_compound_containers(&mut self, expr: &Expr) {
-        match expr {
-            Expr::Index(idx) => self.emit_index_expr(idx),
-            Expr::Tuple(t) => self.visit_expr_list(&t.elems),
-            Expr::Array(a) => self.visit_expr_list(&a.elems),
-            Expr::Struct(s) => self.emit_struct_expr(s),
-            Expr::Let(l) => self.emit_let_expr(l),
-            Expr::Repeat(r) => self.emit_repeat_expr(r),
-            Expr::Macro(m) => self.emit_macro_operand(&m.mac),
-            _ => {}
+        if let Expr::Index(idx) = expr {
+            return self.emit_index_expr(idx);
+        }
+        if let Expr::Tuple(t) = expr {
+            return self.visit_expr_list(&t.elems);
+        }
+        if let Expr::Array(a) = expr {
+            return self.visit_expr_list(&a.elems);
+        }
+        if let Expr::Struct(s) = expr {
+            return self.emit_struct_expr(s);
+        }
+        if let Expr::Let(l) = expr {
+            return self.emit_let_expr(l);
+        }
+        if let Expr::Repeat(r) = expr {
+            return self.emit_repeat_expr(r);
+        }
+        if let Expr::Macro(m) = expr {
+            self.emit_macro_operand(&m.mac);
         }
     }
 

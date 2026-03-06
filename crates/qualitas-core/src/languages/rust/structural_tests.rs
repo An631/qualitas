@@ -12,7 +12,11 @@ fn rs_first_fn_sm(source: &str) -> crate::types::StructuralResult {
         .expect("Expected at least one function in Rust source");
     compute_sm_from_events(
         &func.events,
-        &SourceSpan { source, start: func.byte_start, end: func.byte_end },
+        &SourceSpan {
+            source,
+            start: func.byte_start,
+            end: func.byte_end,
+        },
         func.param_count,
     )
 }

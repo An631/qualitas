@@ -246,3 +246,21 @@ async fn fetch_data(url: &str) -> Result<String, Error> {
         "async.rs",
     );
 }
+
+#[test]
+fn rs_clean_function_scores_high() {
+    let source = "fn add(a: i32, b: i32) -> i32 { a + b }\n";
+    let report = crate::analyzer::analyze_source_str(
+        source,
+        "clean.rs",
+        &crate::types::AnalysisOptions::default(),
+    )
+    .unwrap();
+    assert!(
+        report.score >= 80.0,
+        "Expected score >= 80, got {:.2}",
+        report.score
+    );
+    assert_eq!(report.grade, crate::types::Grade::A);
+    assert!(!report.needs_refactoring);
+}

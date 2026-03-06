@@ -116,33 +116,42 @@ export async function analyzeProject(
 ): Promise<ProjectQualityReport> {
   const config = loadConfig(resolve(dirPath));
   const mergedOpts = mergeOptions(config, options);
-
-  const extensions = mergedOpts.extensions ?? DEFAULT_EXTENSIONS;
-  const excludePatterns = mergedOpts.exclude ?? DEFAULT_EXCLUDE;
-  const testPatterns = resolveTestPatterns(config);
-  const includeTests = mergedOpts.includeTests ?? false;
-
-  const files = await collectFiles(resolve(dirPath), {
-    extensions,
-    exclude: excludePatterns,
-    includeTests,
-    testPatterns,
-  });
-  const fileReports = await Promise.all(
-    files.map((f) => {
-      const flagOverrides = resolveFlagOverrides(f, config);
-      const opts = flagOverrides ? { ...mergedOpts, flagOverrides } : mergedOpts;
-      return analyzeFile(f, opts);
-    }),
-  );
-
+  const files = await collectProjectFiles(dirPath, mergedOpts, config);
+  const fileReports = await analyzeFiles(files, mergedOpts, config);
   return buildProjectReport(dirPath, fileReports, mergedOpts);
+}
+
+async function collectProjectFiles(
+  dirPath: string,
+  opts: AnalysisOptions,
+  config: QualitasConfig,
+): Promise<string[]> {
+  return collectFiles(resolve(dirPath), {
+    extensions: opts.extensions ?? DEFAULT_EXTENSIONS,
+    exclude: opts.exclude ?? DEFAULT_EXCLUDE,
+    includeTests: opts.includeTests ?? false,
+    testPatterns: resolveTestPatterns(config),
+  });
 }
 
 function resolveTestPatterns(config: import('./types.js').QualitasConfig): string[] {
   const tsConfig = config.languages?.typescript;
   if (tsConfig?.testPatterns) return tsConfig.testPatterns;
   return TEST_PATTERNS;
+}
+
+async function analyzeFiles(
+  files: string[],
+  mergedOpts: AnalysisOptions,
+  config: QualitasConfig,
+): Promise<FileQualityReport[]> {
+  return Promise.all(
+    files.map((f) => {
+      const flagOverrides = resolveFlagOverrides(f, config);
+      const opts = flagOverrides ? { ...mergedOpts, flagOverrides } : mergedOpts;
+      return analyzeFile(f, opts);
+    }),
+  );
 }
 
 // ─── Flag config resolution ───────────────────────────────────────────────
@@ -272,31 +281,37 @@ function findWorstFunctions(
   return [...allFunctions].sort((a, b) => a.score - b.score).slice(0, count);
 }
 
+function buildProjectSummary(
+  fileReports: FileQualityReport[],
+  allFunctions: FunctionQualityReport[],
+  score: number,
+): ProjectQualityReport['summary'] {
+  return {
+    totalFiles: fileReports.length,
+    totalFunctions: allFunctions.length,
+    totalClasses: fileReports.reduce((s, f) => s + f.classCount, 0),
+    flaggedFiles: fileReports.filter((f) => f.needsRefactoring).length,
+    flaggedFunctions: allFunctions.filter((f) => f.needsRefactoring).length,
+    averageScore: score,
+    gradeDistribution: computeGradeDistribution(allFunctions),
+  };
+}
+
 function buildProjectReport(
   dirPath: string,
   fileReports: FileQualityReport[],
   options: AnalysisOptions,
 ): ProjectQualityReport {
-  const threshold = options.refactoringThreshold ?? 65;
   const allFunctions = collectAllFunctions(fileReports);
-  const weightedScore = computeWeightedScore(allFunctions);
-  const grade = scoreToGrade(weightedScore);
+  const score = computeWeightedScore(allFunctions);
 
   return {
     dirPath,
-    score: weightedScore,
-    grade,
-    needsRefactoring: weightedScore < threshold,
+    score,
+    grade: scoreToGrade(score),
+    needsRefactoring: score < (options.refactoringThreshold ?? 65),
     files: fileReports,
-    summary: {
-      totalFiles: fileReports.length,
-      totalFunctions: allFunctions.length,
-      totalClasses: fileReports.reduce((s, f) => s + f.classCount, 0),
-      flaggedFiles: fileReports.filter((f) => f.needsRefactoring).length,
-      flaggedFunctions: allFunctions.filter((f) => f.needsRefactoring).length,
-      averageScore: weightedScore,
-      gradeDistribution: computeGradeDistribution(allFunctions),
-    },
+    summary: buildProjectSummary(fileReports, allFunctions, score),
     worstFunctions: findWorstFunctions(allFunctions, 10),
   };
 }

@@ -194,6 +194,96 @@ fn ts_empty_source_conforms() {
 }
 
 #[test]
+fn ts_clean_function_scores_high() {
+    let report = crate::analyzer::analyze_source_str(
+        "function add(a: number, b: number): number { return a + b; }",
+        "clean.ts",
+        &crate::types::AnalysisOptions::default(),
+    )
+    .unwrap();
+    assert!(
+        report.score >= 80.0,
+        "Expected score >= 80, got {:.2}",
+        report.score
+    );
+    assert_eq!(report.grade, crate::types::Grade::A);
+}
+
+#[test]
+fn ts_complex_function_scores_low() {
+    let source = r"
+function processOrders(orders: any[], config: any, logger: any, db: any, cache: any, validator: any) {
+    const results: any[] = [];
+    for (const order of orders) {
+        if (order.status === 'pending') {
+            if (order.items && order.items.length > 0) {
+                for (const item of order.items) {
+                    if (item.quantity > 0) {
+                        try {
+                            if (validator.isValid(item)) {
+                                if (config.dryRun || config.verbose && logger.level === 'debug') {
+                                    logger.info('processing');
+                                }
+                                const price = item.price * item.quantity;
+                                if (price > config.maxPrice) {
+                                    results.push({ status: 'skipped', reason: 'too expensive' });
+                                } else {
+                                    results.push({ status: 'processed', price: price });
+                                }
+                            }
+                        } catch (err: any) {
+                            if (err.code === 'NETWORK') {
+                                logger.error(err.message);
+                                cache.invalidate(order.id);
+                            } else {
+                                db.log(err);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return results;
+}
+";
+    let report = crate::analyzer::analyze_source_str(
+        source,
+        "complex.ts",
+        &crate::types::AnalysisOptions::default(),
+    )
+    .unwrap();
+    assert!(
+        report.score < 65.0,
+        "Expected score < 65, got {:.2}",
+        report.score
+    );
+}
+
+#[test]
+fn ts_class_aggregates_methods() {
+    let source = r"
+class Calculator {
+    add(a: number, b: number) { return a + b; }
+    subtract(a: number, b: number) { return a - b; }
+}
+";
+    let report = crate::analyzer::analyze_source_str(
+        source,
+        "class.ts",
+        &crate::types::AnalysisOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(report.class_count, 1);
+    assert_eq!(report.function_count, 2);
+    assert!(
+        report.functions.is_empty(),
+        "Methods should be in classes, not top-level"
+    );
+    assert_eq!(report.classes[0].methods.len(), 2);
+}
+
+#[test]
 fn ts_syntax_error_does_not_panic() {
     let adapter = TypeScriptAdapter;
     let result = adapter.extract("function {{{", "bad.ts");

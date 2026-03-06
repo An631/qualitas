@@ -72,7 +72,7 @@ No build step required when installing from npm.
 
 ## The Five Pillars
 
-### 1. Cognitive Flow Complexity (CFC) — 30% weight
+### 1. Cognitive Flow Complexity (CFC) — 20% weight
 
 Tracks nesting depth during AST traversal and applies progressively larger penalties for deeply nested control flow.
 
@@ -96,7 +96,7 @@ Tracks nesting depth during AST traversal and applies progressively larger penal
 
 ---
 
-### 2. Data Complexity Index (DCI) — 25% weight
+### 2. Data Complexity Index (DCI) — 30% weight
 
 Halstead-inspired metric. Addresses CC-Sonar's largest gap (r=0.901 correlation in the PMC paper vs CC-Sonar's r=0.513).
 
@@ -127,7 +127,7 @@ Where 60 = F-tier difficulty threshold, 3000 = F-tier volume threshold.
 
 ---
 
-### 3. Identifier Reference Complexity (IRC) — 20% weight
+### 3. Identifier Reference Complexity (IRC) — 25% weight
 
 Novel metric. Inspired by the eye-tracking finding (r=0.963) that revisit count — how often a developer re-reads a variable while understanding code — is the strongest predictor of cognitive load.
 
@@ -459,13 +459,13 @@ interface FunctionQualityReport {
 
 ### `default` (recommended)
 
-Research-backed weights derived from the PMC correlation coefficients:
+Weights derived from the PMC correlation coefficients, calibrated to avoid over-penalizing simple pattern matches (which inflate CFC but carry no real cognitive load):
 
 | Pillar | Weight | Rationale |
 | -------- | -------- | ----------- |
-| CFC | 0.30 | Strong predictor, well-validated |
-| DCI | 0.25 | Highest correlation (r=0.901) |
-| IRC | 0.20 | Strongest single predictor (r=0.963) — lower weight because it's novel |
+| DCI | 0.30 | Highest EEG correlation (r=0.901) — best indicator of real data complexity |
+| IRC | 0.25 | Strongest single predictor (r=0.963) — captures variable-tracking cost |
+| CFC | 0.20 | Good predictor but over-counts exhaustive matches and simple switches |
 | DC | 0.15 | Important but less directly studied |
 | SM | 0.10 | Useful sanity check, already partially captured by other pillars |
 
@@ -475,7 +475,7 @@ Boosts CFC to 0.50. Behaves similarly to SonarQube Cognitive Complexity for team
 
 ### `data-focused`
 
-Boosts DCI+IRC to 0.60 combined. Emphasizes Halstead/data complexity — useful for codebases with complex algorithms and data transformations.
+Boosts DCI+IRC to 0.65 combined. Emphasizes Halstead/data complexity — useful for codebases with complex algorithms and data transformations.
 
 ### `strict`
 

@@ -16,7 +16,7 @@ pub struct SourceLocation {
 
 // ─── Per-metric result types ────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CognitiveFlowResult {
     /// Total CFC score
@@ -31,7 +31,7 @@ pub struct CognitiveFlowResult {
     pub max_nesting_depth: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HalsteadCounts {
     pub distinct_operators: u32,
@@ -40,7 +40,7 @@ pub struct HalsteadCounts {
     pub total_operands: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DataComplexityResult {
     pub halstead: HalsteadCounts,
@@ -66,7 +66,7 @@ pub struct IdentifierHotspot {
     pub cost: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdentifierRefResult {
     /// Sum of all identifier costs in this scope
@@ -75,7 +75,7 @@ pub struct IdentifierRefResult {
     pub hotspots: Vec<IdentifierHotspot>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DependencyCouplingResult {
     pub import_count: u32,
@@ -92,7 +92,7 @@ pub struct DependencyCouplingResult {
     pub raw_score: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StructuralResult {
     pub loc: u32,
@@ -107,7 +107,7 @@ pub struct StructuralResult {
 
 // ─── Composite metric container ─────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MetricBreakdown {
     pub cognitive_flow: CognitiveFlowResult,
@@ -315,9 +315,9 @@ pub struct WeightConfig {
 impl Default for WeightConfig {
     fn default() -> Self {
         Self {
-            cognitive_flow: 0.30,
-            data_complexity: 0.25,
-            identifier_reference: 0.20,
+            cognitive_flow: 0.20,
+            data_complexity: 0.30,
+            identifier_reference: 0.25,
             dependency_coupling: 0.15,
             structural: 0.10,
         }

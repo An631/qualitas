@@ -157,7 +157,11 @@ fn run_file(
             .file_scope
             .as_ref()
             .is_some_and(|fs| fs.score < threshold)
-        || has_flags_at_severity(&report.functions, report.file_scope.as_deref(), fail_on_flags);
+        || has_flags_at_severity(
+            &report.functions,
+            report.file_scope.as_deref(),
+            fail_on_flags,
+        );
 
     println!("{}", format_file_output(&report, format));
     Ok(below)
@@ -211,6 +215,18 @@ fn check_project_threshold(
         })
 }
 
+/// Check if a single function has flags at the specified severity level.
+fn fn_has_flags(f: &FunctionQualityReport, level: &str) -> bool {
+    match level {
+        "warn" => !f.flags.is_empty(),
+        "error" => f
+            .flags
+            .iter()
+            .any(|flag| flag.severity == qualitas_core::types::Severity::Error),
+        _ => false,
+    }
+}
+
 /// Check if any function has flags at the specified severity level.
 fn has_flags_at_severity(
     functions: &[FunctionQualityReport],
@@ -220,15 +236,8 @@ fn has_flags_at_severity(
     let Some(level) = fail_on_flags else {
         return false;
     };
-    let check_fn = |f: &FunctionQualityReport| match level {
-        "warn" => !f.flags.is_empty(),
-        "error" => f.flags.iter().any(|flag| {
-            flag.severity == qualitas_core::types::Severity::Error
-        }),
-        _ => false,
-    };
-    functions.iter().any(check_fn)
-        || file_scope.is_some_and(check_fn)
+    functions.iter().any(|f| fn_has_flags(f, level))
+        || file_scope.is_some_and(|fs| fn_has_flags(fs, level))
 }
 
 // ─── Extracted helper: format project output ──────────────────────────────────
@@ -504,46 +513,49 @@ fn find_worst_functions(functions: &[&FunctionQualityReport]) -> Vec<FunctionQua
 
 // ─── Project report builder ───────────────────────────────────────────────────
 
+fn compute_weighted_score(all_fns: &[&FunctionQualityReport]) -> f64 {
+    let scores: Vec<(f64, u32)> = all_fns
+        .iter()
+        .map(|f| (f.score, f.metrics.structural.loc.max(1)))
+        .collect();
+    if scores.is_empty() {
+        100.0
+    } else {
+        aggregate_scores(&scores)
+    }
+}
+
+fn build_summary(
+    file_reports: &[FileQualityReport],
+    all_fns: &[&FunctionQualityReport],
+    score: f64,
+) -> ProjectSummary {
+    ProjectSummary {
+        total_files: file_reports.len() as u32,
+        total_functions: all_fns.len() as u32,
+        total_classes: file_reports.iter().map(|f| f.class_count).sum(),
+        flagged_files: file_reports.iter().filter(|f| f.needs_refactoring).count() as u32,
+        flagged_functions: all_fns.iter().filter(|f| f.needs_refactoring).count() as u32,
+        average_score: score,
+        grade_distribution: build_grade_distribution(all_fns),
+    }
+}
+
 fn build_project_report(
     dir_path: &str,
     file_reports: Vec<FileQualityReport>,
     threshold: f64,
 ) -> ProjectQualityReport {
-    let all_functions = collect_all_functions(&file_reports);
-
-    // LOC-weighted average
-    let scores: Vec<(f64, u32)> = all_functions
-        .iter()
-        .map(|f| (f.score, f.metrics.structural.loc.max(1)))
-        .collect();
-
-    let weighted_score = if scores.is_empty() {
-        100.0
-    } else {
-        aggregate_scores(&scores)
-    };
-
-    let dist = build_grade_distribution(&all_functions);
-
-    let worst = find_worst_functions(&all_functions);
-
-    let grade = grade_from_score(weighted_score, None);
+    let all_fns = collect_all_functions(&file_reports);
+    let score = compute_weighted_score(&all_fns);
 
     ProjectQualityReport {
         dir_path: dir_path.to_string(),
-        score: weighted_score,
-        grade,
-        needs_refactoring: weighted_score < threshold,
-        summary: ProjectSummary {
-            total_files: file_reports.len() as u32,
-            total_functions: all_functions.len() as u32,
-            total_classes: file_reports.iter().map(|f| f.class_count).sum(),
-            flagged_files: file_reports.iter().filter(|f| f.needs_refactoring).count() as u32,
-            flagged_functions: all_functions.iter().filter(|f| f.needs_refactoring).count() as u32,
-            average_score: weighted_score,
-            grade_distribution: dist,
-        },
+        score,
+        grade: grade_from_score(score, None),
+        needs_refactoring: score < threshold,
+        summary: build_summary(&file_reports, &all_fns, score),
+        worst_functions: find_worst_functions(&all_fns),
         files: file_reports,
-        worst_functions: worst,
     }
 }

@@ -44,9 +44,15 @@ pub fn compute_score(
 }
 
 fn compute_breakdown(metrics: &MetricBreakdown, w: &WeightConfig) -> ScoreBreakdown {
-    let cfc_penalty = pillar_penalty(f64::from(metrics.cognitive_flow.score) / NORM_CFC, w.cognitive_flow);
+    let cfc_penalty = pillar_penalty(
+        f64::from(metrics.cognitive_flow.score) / NORM_CFC,
+        w.cognitive_flow,
+    );
     let dci_penalty = pillar_penalty(metrics.data_complexity.raw_score, w.data_complexity);
-    let irc_penalty = pillar_penalty(metrics.identifier_reference.total_irc / NORM_IRC, w.identifier_reference);
+    let irc_penalty = pillar_penalty(
+        metrics.identifier_reference.total_irc / NORM_IRC,
+        w.identifier_reference,
+    );
     let dc_penalty = pillar_penalty(metrics.dependency_coupling.raw_score, w.dependency_coupling);
     let sm_penalty = pillar_penalty(metrics.structural.raw_score, w.structural);
 
@@ -80,56 +86,9 @@ pub fn aggregate_scores(reports: &[(f64, u32)]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{
-        CognitiveFlowResult, DataComplexityResult, DependencyCouplingResult, HalsteadCounts,
-        IdentifierRefResult, StructuralResult,
-    };
 
     fn zero_metrics() -> MetricBreakdown {
-        MetricBreakdown {
-            cognitive_flow: CognitiveFlowResult {
-                score: 0,
-                nesting_penalty: 0,
-                base_increments: 0,
-                async_penalty: 0,
-                max_nesting_depth: 0,
-            },
-            data_complexity: DataComplexityResult {
-                halstead: HalsteadCounts {
-                    distinct_operators: 0,
-                    distinct_operands: 0,
-                    total_operators: 0,
-                    total_operands: 0,
-                },
-                difficulty: 0.0,
-                volume: 0.0,
-                effort: 0.0,
-                raw_score: 0.0,
-            },
-            identifier_reference: IdentifierRefResult {
-                total_irc: 0.0,
-                hotspots: vec![],
-            },
-            dependency_coupling: DependencyCouplingResult {
-                import_count: 0,
-                distinct_sources: 0,
-                external_ratio: 0.0,
-                external_packages: vec![],
-                internal_modules: vec![],
-                distinct_api_calls: 0,
-                closure_captures: 0,
-                raw_score: 0.0,
-            },
-            structural: StructuralResult {
-                loc: 0,
-                total_lines: 0,
-                parameter_count: 0,
-                max_nesting_depth: 0,
-                return_count: 0,
-                method_count: None,
-                raw_score: 0.0,
-            },
-        }
+        MetricBreakdown::default()
     }
 
     #[test]

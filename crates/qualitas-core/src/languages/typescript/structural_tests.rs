@@ -124,3 +124,32 @@ fn counts_nesting() {
     let r = analyze_structural_from_source("function f(x) { if (x) { for (;;) { return 1; } } }");
     assert!(r.max_nesting_depth >= 2);
 }
+
+#[test]
+fn ts_file_score_is_loc_weighted() {
+    let source = r"
+function tiny(a: number): number { return a; }
+
+function longer(x: number): number {
+    let result = 0;
+    if (x > 0) {
+        if (x > 10) {
+            if (x > 100) { result = x * 2; } else { result = x + 1; }
+        } else { result = x - 1; }
+    } else { result = -x; }
+    return result;
+}
+";
+    let report = crate::analyzer::analyze_source_str(
+        source,
+        "weighted.ts",
+        &crate::types::AnalysisOptions::default(),
+    )
+    .unwrap();
+    let tiny_score = report.functions[0].score;
+    let longer_score = report.functions[1].score;
+    assert!(
+        longer_score < tiny_score,
+        "Longer function ({longer_score:.1}) should score lower than tiny ({tiny_score:.1})",
+    );
+}

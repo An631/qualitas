@@ -85,16 +85,18 @@ impl<'a> IrcState<'a> {
 
 /// Handle a single IR event, updating the IRC accumulator.
 ///
-/// Returns early for events inside nested function boundaries.
+/// Inside nested function boundaries:
+/// - `IdentDeclaration` is skipped (closure-local bindings don't count)
+/// - `IdentReference` is still processed — if the variable was declared in
+///   the parent scope, the closure's reference counts toward the parent's IRC.
+///   This ensures closures in method chains (`.find(|x| score >= *x)`) contribute
+///   to the enclosing function's identifier tracking cost.
 fn process_irc_event(event: &QualitasEvent, state: &mut IrcState<'_>) {
     if state.handle_nested_fn_boundary(event) {
         return;
     }
-    if state.is_inside_nested_fn() {
-        return;
-    }
     match event {
-        QualitasEvent::IdentDeclaration(ident) => {
+        QualitasEvent::IdentDeclaration(ident) if !state.is_inside_nested_fn() => {
             state.declare_ident(&ident.name, ident.byte_offset);
         }
         QualitasEvent::IdentReference(ident) => {
@@ -167,6 +169,67 @@ mod tests {
         })];
         let r = compute_irc(&events, source);
         assert_eq!(r.total_irc, 0.0);
+    }
+
+    #[test]
+    fn event_closure_refs_to_parent_scope_are_counted() {
+        // Parent declares `threshold`, closure inside NestedFunction references it.
+        // The reference should count toward the parent's IRC.
+        let source = "const threshold = 10;\nitems.filter(|x| x > threshold);\n";
+        let events = vec![
+            QualitasEvent::IdentDeclaration(IdentEvent {
+                name: "threshold".into(),
+                byte_offset: 6,
+            }),
+            QualitasEvent::NestedFunctionEnter,
+            // closure-local declaration — should NOT be tracked by parent
+            QualitasEvent::IdentDeclaration(IdentEvent {
+                name: "x".into(),
+                byte_offset: 30,
+            }),
+            // reference to parent-scope variable — SHOULD be tracked
+            QualitasEvent::IdentReference(IdentEvent {
+                name: "threshold".into(),
+                byte_offset: 38,
+            }),
+            QualitasEvent::NestedFunctionExit,
+        ];
+        let r = compute_irc(&events, source);
+        // threshold is referenced once from a closure → should have non-zero IRC
+        assert!(
+            r.total_irc > 0.0,
+            "Closure reference to parent-scope 'threshold' should contribute to IRC, got {}",
+            r.total_irc,
+        );
+        // x was declared inside the closure, never referenced → should not appear
+        assert!(
+            !r.hotspots.iter().any(|h| h.name == "x"),
+            "Closure-local 'x' should not appear in parent IRC hotspots",
+        );
+    }
+
+    #[test]
+    fn event_closure_local_decl_not_counted_in_parent() {
+        // Variable declared and referenced entirely inside a closure
+        // should NOT inflate the parent function's IRC.
+        let source = "items.map(|x| x * 2);\n";
+        let events = vec![
+            QualitasEvent::NestedFunctionEnter,
+            QualitasEvent::IdentDeclaration(IdentEvent {
+                name: "x".into(),
+                byte_offset: 11,
+            }),
+            QualitasEvent::IdentReference(IdentEvent {
+                name: "x".into(),
+                byte_offset: 14,
+            }),
+            QualitasEvent::NestedFunctionExit,
+        ];
+        let r = compute_irc(&events, source);
+        assert_eq!(
+            r.total_irc, 0.0,
+            "Closure-local variable should not contribute to parent IRC",
+        );
     }
 
     #[test]

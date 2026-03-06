@@ -70,8 +70,8 @@ pub const HALSTEAD_EFFORT_ERROR: f64 = 5000.0;
 pub const IRC_WARNING: f64 = 41.0;
 pub const IRC_ERROR: f64 = 71.0;
 
-pub const PARAMS_WARNING: u32 = 4;
-pub const PARAMS_ERROR: u32 = 5;
+pub const PARAMS_WARNING: u32 = 5;
+pub const PARAMS_ERROR: u32 = 7;
 
 pub const LOC_WARNING: u32 = 41;
 pub const LOC_ERROR: u32 = 61;
@@ -132,7 +132,11 @@ impl ResolvedThresholds {
 
     fn apply_overrides(&mut self, o: &ThresholdOverrides) {
         macro_rules! apply {
-            ($field:ident) => { if let Some(v) = o.$field { self.$field = v; } };
+            ($field:ident) => {
+                if let Some(v) = o.$field {
+                    self.$field = v;
+                }
+            };
         }
         apply!(norm_cfc);
         apply!(norm_dci_difficulty);
@@ -191,9 +195,9 @@ pub fn weights_for_profile(profile: &str) -> WeightConfig {
             structural: 0.05,
         },
         "data-focused" => WeightConfig {
-            cognitive_flow: 0.20,
+            cognitive_flow: 0.15,
             data_complexity: 0.35,
-            identifier_reference: 0.25,
+            identifier_reference: 0.30,
             dependency_coupling: 0.12,
             structural: 0.08,
         },

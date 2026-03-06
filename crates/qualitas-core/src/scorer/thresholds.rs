@@ -11,18 +11,19 @@ use crate::types::{FlagConfig, FlagType, Grade, MetricBreakdown, RefactoringFlag
 /// Assign a grade from a composite quality score.
 pub fn grade_from_score(score: f64, profile: Option<&str>) -> Grade {
     let (a_min, b_min, c_min, d_min) = grade_bounds_for_profile(profile.unwrap_or("default"));
-
     if score >= a_min {
-        Grade::A
-    } else if score >= b_min {
-        Grade::B
-    } else if score >= c_min {
-        Grade::C
-    } else if score >= d_min {
-        Grade::D
-    } else {
-        Grade::F
+        return Grade::A;
     }
+    if score >= b_min {
+        return Grade::B;
+    }
+    if score >= c_min {
+        return Grade::C;
+    }
+    if score >= d_min {
+        return Grade::D;
+    }
+    Grade::F
 }
 
 // ─── Flag config resolution ──────────────────────────────────────────────────
@@ -44,8 +45,12 @@ fn resolve_flag(
     defaults: &FlagDefaults,
     overrides: Option<&HashMap<String, FlagConfig>>,
 ) -> ResolvedFlagThresholds {
-    let (name, default_enabled, default_warn, default_error) =
-        (defaults.name, defaults.enabled, defaults.warn, defaults.error);
+    let (name, default_enabled, default_warn, default_error) = (
+        defaults.name,
+        defaults.enabled,
+        defaults.warn,
+        defaults.error,
+    );
     match overrides.and_then(|m| m.get(name)) {
         Some(FlagConfig::Enabled(true)) => ResolvedFlagThresholds {
             enabled: true,
@@ -337,138 +342,163 @@ pub fn generate_flags(
     flag_overrides: Option<&HashMap<String, FlagConfig>>,
 ) -> Vec<RefactoringFlag> {
     let mut flags = Vec::new();
-    let o = flag_overrides;
-
-    check_metric_flags(metrics, o, &mut flags);
-    check_structural_flags(metrics, o, &mut flags);
-    check_coupling_flag(metrics, o, &mut flags);
-
+    emit_pillar_flags(metrics, flag_overrides, &mut flags);
+    emit_structure_flags(metrics, flag_overrides, &mut flags);
+    emit_coupling_flag(metrics, flag_overrides, &mut flags);
     flags
 }
 
-fn check_metric_flags(
-    metrics: &MetricBreakdown,
+fn emit_pillar_flags(
+    m: &MetricBreakdown,
     o: Option<&HashMap<String, FlagConfig>>,
-    flags: &mut Vec<RefactoringFlag>,
+    f: &mut Vec<RefactoringFlag>,
 ) {
-    macro_rules! check {
-        ($n:expr, $en:expr, $w:expr, $e:expr, $chk:expr) => {{
-            let d = FlagDefaults { name: $n, enabled: $en, warn: $w, error: $e };
-            let r = resolve_flag(&d, o);
-            if r.enabled {
-                flags.extend($chk(r.warn, r.error));
-            }
-        }};
-    }
-
-    check!("highCognitiveFlow", true, f64::from(CFC_WARNING), f64::from(CFC_ERROR),
-        |w, e| check_cfc_flags(metrics.cognitive_flow.score, w, e));
-    check!("highDataComplexity", true, DCI_DIFFICULTY_WARNING, DCI_DIFFICULTY_ERROR,
-        |w, e| check_difficulty_flags(metrics.data_complexity.difficulty, w, e));
-    check!("highHalsteadEffort", true, HALSTEAD_EFFORT_WARNING, HALSTEAD_EFFORT_ERROR,
-        |w, e| check_halstead_effort_flags(metrics.data_complexity.effort, w, e));
-    check!("highIdentifierChurn", true, IRC_WARNING, IRC_ERROR,
-        |w, e| check_irc_flags(metrics.identifier_reference.total_irc, w, e));
+    emit(
+        fd(
+            "highCognitiveFlow",
+            true,
+            f64::from(CFC_WARNING),
+            f64::from(CFC_ERROR),
+        ),
+        o,
+        |w, e| check_cfc_flags(m.cognitive_flow.score, w, e),
+        f,
+    );
+    emit(
+        fd(
+            "highDataComplexity",
+            true,
+            DCI_DIFFICULTY_WARNING,
+            DCI_DIFFICULTY_ERROR,
+        ),
+        o,
+        |w, e| check_difficulty_flags(m.data_complexity.difficulty, w, e),
+        f,
+    );
+    emit(
+        fd(
+            "highHalsteadEffort",
+            true,
+            HALSTEAD_EFFORT_WARNING,
+            HALSTEAD_EFFORT_ERROR,
+        ),
+        o,
+        |w, e| check_halstead_effort_flags(m.data_complexity.effort, w, e),
+        f,
+    );
+    emit(
+        fd("highIdentifierChurn", true, IRC_WARNING, IRC_ERROR),
+        o,
+        |w, e| check_irc_flags(m.identifier_reference.total_irc, w, e),
+        f,
+    );
 }
 
-fn check_structural_flags(
-    metrics: &MetricBreakdown,
+fn emit_structure_flags(
+    m: &MetricBreakdown,
     o: Option<&HashMap<String, FlagConfig>>,
-    flags: &mut Vec<RefactoringFlag>,
+    f: &mut Vec<RefactoringFlag>,
 ) {
-    macro_rules! check {
-        ($n:expr, $en:expr, $w:expr, $e:expr, $chk:expr) => {{
-            let d = FlagDefaults { name: $n, enabled: $en, warn: $w, error: $e };
-            let r = resolve_flag(&d, o);
-            if r.enabled {
-                flags.extend($chk(r.warn, r.error));
-            }
-        }};
-    }
-
-    check!("tooManyParams", true, f64::from(PARAMS_WARNING), f64::from(PARAMS_ERROR),
-        |w, e| check_params_flags(metrics.structural.parameter_count, w, e));
-    check!("tooLong", true, f64::from(LOC_WARNING), f64::from(LOC_ERROR),
-        |w, e| check_loc_flags(metrics.structural.loc, w, e));
-    check!("deepNesting", true, f64::from(NESTING_WARNING), f64::from(NESTING_ERROR),
-        |w, e| check_nesting_flags(metrics.structural.max_nesting_depth, w, e));
-    check!("excessiveReturns", false, f64::from(RETURNS_WARNING), f64::from(RETURNS_ERROR),
-        |w, e| check_returns_flags(metrics.structural.return_count, w, e));
+    emit(
+        fd(
+            "tooManyParams",
+            true,
+            f64::from(PARAMS_WARNING),
+            f64::from(PARAMS_ERROR),
+        ),
+        o,
+        |w, e| check_params_flags(m.structural.parameter_count, w, e),
+        f,
+    );
+    emit(
+        fd(
+            "tooLong",
+            true,
+            f64::from(LOC_WARNING),
+            f64::from(LOC_ERROR),
+        ),
+        o,
+        |w, e| check_loc_flags(m.structural.loc, w, e),
+        f,
+    );
+    emit(
+        fd(
+            "deepNesting",
+            true,
+            f64::from(NESTING_WARNING),
+            f64::from(NESTING_ERROR),
+        ),
+        o,
+        |w, e| check_nesting_flags(m.structural.max_nesting_depth, w, e),
+        f,
+    );
+    emit(
+        fd(
+            "excessiveReturns",
+            false,
+            f64::from(RETURNS_WARNING),
+            f64::from(RETURNS_ERROR),
+        ),
+        o,
+        |w, e| check_returns_flags(m.structural.return_count, w, e),
+        f,
+    );
 }
 
-fn check_coupling_flag(
-    metrics: &MetricBreakdown,
+fn emit_coupling_flag(
+    m: &MetricBreakdown,
     o: Option<&HashMap<String, FlagConfig>>,
+    f: &mut Vec<RefactoringFlag>,
+) {
+    emit(
+        fd(
+            "highCoupling",
+            true,
+            f64::from(IMPORT_WARNING),
+            f64::from(IMPORT_ERROR),
+        ),
+        o,
+        |w, e| {
+            check_coupling_flags(
+                m.dependency_coupling.import_count,
+                m.dependency_coupling.distinct_api_calls,
+                w,
+                e,
+            )
+        },
+        f,
+    );
+}
+
+fn emit(
+    defaults: FlagDefaults,
+    overrides: Option<&HashMap<String, FlagConfig>>,
+    check: impl FnOnce(f64, f64) -> Vec<RefactoringFlag>,
     flags: &mut Vec<RefactoringFlag>,
 ) {
-    let d = FlagDefaults {
-        name: "highCoupling", enabled: true,
-        warn: f64::from(IMPORT_WARNING), error: f64::from(IMPORT_ERROR),
-    };
-    let r = resolve_flag(&d, o);
+    let r = resolve_flag(&defaults, overrides);
     if r.enabled {
-        flags.extend(check_coupling_flags(
-            metrics.dependency_coupling.import_count,
-            metrics.dependency_coupling.distinct_api_calls,
-            r.warn, r.error,
-        ));
+        flags.extend(check(r.warn, r.error));
+    }
+}
+
+fn fd(name: &'static str, enabled: bool, warn: f64, error: f64) -> FlagDefaults {
+    FlagDefaults {
+        name,
+        enabled,
+        warn,
+        error,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{
-        CognitiveFlowResult, DataComplexityResult, DependencyCouplingResult, FlagConfig, Grade,
-        HalsteadCounts, IdentifierRefResult, MetricBreakdown, StructuralResult,
-    };
+    use crate::types::{FlagConfig, Grade, MetricBreakdown};
 
     /// Build a MetricBreakdown with all metrics at zero (clean code).
     fn zero_metrics() -> MetricBreakdown {
-        MetricBreakdown {
-            cognitive_flow: CognitiveFlowResult {
-                score: 0,
-                nesting_penalty: 0,
-                base_increments: 0,
-                async_penalty: 0,
-                max_nesting_depth: 0,
-            },
-            data_complexity: DataComplexityResult {
-                halstead: HalsteadCounts {
-                    distinct_operators: 0,
-                    distinct_operands: 0,
-                    total_operators: 0,
-                    total_operands: 0,
-                },
-                difficulty: 0.0,
-                volume: 0.0,
-                effort: 0.0,
-                raw_score: 0.0,
-            },
-            identifier_reference: IdentifierRefResult {
-                total_irc: 0.0,
-                hotspots: vec![],
-            },
-            dependency_coupling: DependencyCouplingResult {
-                import_count: 0,
-                distinct_sources: 0,
-                external_ratio: 0.0,
-                external_packages: vec![],
-                internal_modules: vec![],
-                distinct_api_calls: 0,
-                closure_captures: 0,
-                raw_score: 0.0,
-            },
-            structural: StructuralResult {
-                loc: 0,
-                total_lines: 0,
-                parameter_count: 0,
-                max_nesting_depth: 0,
-                return_count: 0,
-                method_count: None,
-                raw_score: 0.0,
-            },
-        }
+        MetricBreakdown::default()
     }
 
     // ── Grade boundary tests ──────────────────────────────────────────────
@@ -570,7 +600,7 @@ mod tests {
     #[test]
     fn params_error_at_threshold() {
         let mut metrics = zero_metrics();
-        metrics.structural.parameter_count = 5; // PARAMS_ERROR = 5
+        metrics.structural.parameter_count = 7; // PARAMS_ERROR = 7
         let flags = generate_flags(&metrics, None);
         let params_flag = flags
             .iter()
@@ -579,7 +609,7 @@ mod tests {
         assert_eq!(
             params_flag.severity,
             Severity::Error,
-            "params=5 should be an error, not {:?}",
+            "params=7 should be an error, not {:?}",
             params_flag.severity,
         );
     }
