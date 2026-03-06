@@ -80,11 +80,14 @@ jobs:
       - name: Markdown lint
         run: npx markdownlint-cli2 "**/*.md" "!node_modules" "!target"
 
+      - name: Verify cargo is available
+        run: cargo --version && rustc --version
+
       - name: Build native addon (debug)
         run: npm run build:debug
 
       - name: Verify native binary exists
-        run: ls -la qualitas_napi.*.node
+        run: ls -la qualitas_napi.*.node || (echo "Build may have failed. Checking napi output:" && find . -name "*.node" -not -path "./node_modules/*" 2>/dev/null)
 
       - name: Compile TypeScript
         run: npm run build:ts

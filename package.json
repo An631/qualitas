@@ -25,8 +25,8 @@
     ]
   },
   "scripts": {
-    "build": "napi build --platform --release --js qualitas_napi.js --dts qualitas_napi.d.ts -p qualitas-napi",
-    "build:debug": "napi build --platform --js qualitas_napi.js --dts qualitas_napi.d.ts -p qualitas-napi",
+    "build": "napi build --platform --release --js qualitas_napi.js --dts qualitas_napi.d.ts -p qualitas-napi -o .",
+    "build:debug": "napi build --platform --js qualitas_napi.js --dts qualitas_napi.d.ts -p qualitas-napi -o .",
     "build:ts": "tsc --project tsconfig.build.json",
     "prepublishOnly": "npm run build && npm run build:ts && npm test",
     "verify": "npm run test && npm run lint && npm run format:check && npm run quality:detail",
