@@ -90,24 +90,28 @@ function renderWorstFunctionsTable(worstFunctions: FunctionQualityReport[]): str
   return lines;
 }
 
+function renderProjectSummaryTable(report: ProjectQualityReport): string[] {
+  const s = report.summary;
+  const g = s.gradeDistribution;
+  return [
+    `| Metric | Value |`,
+    `|--------|-------|`,
+    `| Files analyzed | ${s.totalFiles} |`,
+    `| Functions analyzed | ${s.totalFunctions} |`,
+    `| Functions needing refactoring | ${s.flaggedFunctions} |`,
+    `| Grade distribution | A:${g.a} B:${g.b} C:${g.c} D:${g.d} F:${g.f} |`,
+    '',
+  ];
+}
+
 export function renderMarkdownProjectReport(report: ProjectQualityReport): string {
   const lines: string[] = [];
-  const s = report.summary;
 
   lines.push(`# qualitas Report: \`${report.dirPath}\``);
   lines.push('');
   lines.push(`**Project Score:** ${report.score.toFixed(1)} / 100  ${gradeBadge(report.grade)}`);
   lines.push('');
-  lines.push(`| Metric | Value |`);
-  lines.push(`|--------|-------|`);
-  lines.push(`| Files analyzed | ${s.totalFiles} |`);
-  lines.push(`| Functions analyzed | ${s.totalFunctions} |`);
-  lines.push(`| Functions needing refactoring | ${s.flaggedFunctions} |`);
-  lines.push(
-    `| Grade distribution | A:${s.gradeDistribution.a} B:${s.gradeDistribution.b} C:${s.gradeDistribution.c} D:${s.gradeDistribution.d} F:${s.gradeDistribution.f} |`,
-  );
-  lines.push('');
-
+  lines.push(...renderProjectSummaryTable(report));
   lines.push(...renderWorstFunctionsTable(report.worstFunctions));
 
   return lines.join('\n');

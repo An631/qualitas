@@ -122,13 +122,12 @@ export async function analyzeProject(
   const testPatterns = resolveTestPatterns(config);
   const includeTests = mergedOpts.includeTests ?? false;
 
-  const files = await collectFiles(
-    resolve(dirPath),
+  const files = await collectFiles(resolve(dirPath), {
     extensions,
-    excludePatterns,
+    exclude: excludePatterns,
     includeTests,
     testPatterns,
-  );
+  });
   const fileReports = await Promise.all(
     files.map((f) => {
       const flagOverrides = resolveFlagOverrides(f, config);
@@ -231,15 +230,9 @@ async function processEntry(
   }
 }
 
-async function collectFiles(
-  dir: string,
-  extensions: string[],
-  exclude: string[],
-  includeTests: boolean,
-  testPatterns: string[],
-): Promise<string[]> {
+async function collectFiles(dir: string, config: WalkConfig): Promise<string[]> {
   const results: string[] = [];
-  await walkDirectory(dir, { extensions, exclude, includeTests, testPatterns }, results);
+  await walkDirectory(dir, config, results);
   return results;
 }
 

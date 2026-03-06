@@ -93,15 +93,20 @@ fn process_structural_events(events: &[QualitasEvent]) -> (u32, u32, u32) {
 ///
 /// SM stops counting at `NestedFunctionEnter` boundaries — nested function
 /// nesting and returns don't count toward the outer function's SM.
+/// Source span for LOC counting in structural metric computation.
+pub struct SourceSpan<'a> {
+    pub source: &'a str,
+    pub start: u32,
+    pub end: u32,
+}
+
 pub fn compute_sm_from_events(
     events: &[QualitasEvent],
-    source: &str,
-    span_start: u32,
-    span_end: u32,
+    span: &SourceSpan<'_>,
     param_count: u32,
 ) -> StructuralResult {
-    let loc = count_loc(source, span_start, span_end);
-    let total_lines = source[span_start as usize..(span_end as usize).min(source.len())]
+    let loc = count_loc(span.source, span.start, span.end);
+    let total_lines = span.source[span.start as usize..(span.end as usize).min(span.source.len())]
         .chars()
         .filter(|&c| c == '\n')
         .count() as u32
@@ -165,7 +170,8 @@ mod tests {
     fn event_empty_function() {
         let source = "function f() {}";
         let events: Vec<QualitasEvent> = vec![];
-        let r = compute_sm_from_events(&events, source, 0, source.len() as u32, 0);
+        let span = SourceSpan { source, start: 0, end: source.len() as u32 };
+        let r = compute_sm_from_events(&events, &span, 0);
         assert_eq!(r.parameter_count, 0);
         assert_eq!(r.return_count, 0);
         assert_eq!(r.max_nesting_depth, 0);
@@ -180,7 +186,8 @@ mod tests {
             QualitasEvent::NestingExit,
             QualitasEvent::ReturnStatement, // return 0
         ];
-        let r = compute_sm_from_events(&events, source, 0, source.len() as u32, 1);
+        let span = SourceSpan { source, start: 0, end: source.len() as u32 };
+        let r = compute_sm_from_events(&events, &span, 1);
         assert_eq!(r.parameter_count, 1);
         assert_eq!(r.return_count, 2);
         assert_eq!(r.max_nesting_depth, 1);
@@ -197,7 +204,8 @@ mod tests {
             QualitasEvent::NestingExit,
             QualitasEvent::NestingExit,
         ];
-        let r = compute_sm_from_events(&events, source, 0, source.len() as u32, 0);
+        let span = SourceSpan { source, start: 0, end: source.len() as u32 };
+        let r = compute_sm_from_events(&events, &span, 0);
         assert_eq!(r.max_nesting_depth, 3);
     }
 }

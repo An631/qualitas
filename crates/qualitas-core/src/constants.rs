@@ -121,28 +121,37 @@ impl ResolvedThresholds {
     /// Merge language-specific overrides with global defaults.
     pub fn from_overrides(overrides: Option<&ThresholdOverrides>) -> Self {
         match overrides {
-            Some(o) => Self {
-                norm_cfc: o.norm_cfc.unwrap_or(NORM_CFC),
-                norm_dci_difficulty: o.norm_dci_difficulty.unwrap_or(NORM_DCI_DIFFICULTY),
-                norm_dci_volume: o.norm_dci_volume.unwrap_or(NORM_DCI_VOLUME),
-                norm_irc: o.norm_irc.unwrap_or(NORM_IRC),
-                norm_sm_loc: o.norm_sm_loc.unwrap_or(NORM_SM_LOC),
-                norm_sm_params: o.norm_sm_params.unwrap_or(NORM_SM_PARAMS),
-                norm_sm_nesting: o.norm_sm_nesting.unwrap_or(NORM_SM_NESTING),
-                norm_sm_returns: o.norm_sm_returns.unwrap_or(NORM_SM_RETURNS),
-                cfc_warning: o.cfc_warning.unwrap_or(CFC_WARNING),
-                cfc_error: o.cfc_error.unwrap_or(CFC_ERROR),
-                loc_warning: o.loc_warning.unwrap_or(LOC_WARNING),
-                loc_error: o.loc_error.unwrap_or(LOC_ERROR),
-                params_warning: o.params_warning.unwrap_or(PARAMS_WARNING),
-                params_error: o.params_error.unwrap_or(PARAMS_ERROR),
-                nesting_warning: o.nesting_warning.unwrap_or(NESTING_WARNING),
-                nesting_error: o.nesting_error.unwrap_or(NESTING_ERROR),
-                returns_warning: o.returns_warning.unwrap_or(RETURNS_WARNING),
-                returns_error: o.returns_error.unwrap_or(RETURNS_ERROR),
-            },
+            Some(o) => {
+                let mut t = Self::defaults();
+                t.apply_overrides(o);
+                t
+            }
             None => Self::defaults(),
         }
+    }
+
+    fn apply_overrides(&mut self, o: &ThresholdOverrides) {
+        macro_rules! apply {
+            ($field:ident) => { if let Some(v) = o.$field { self.$field = v; } };
+        }
+        apply!(norm_cfc);
+        apply!(norm_dci_difficulty);
+        apply!(norm_dci_volume);
+        apply!(norm_irc);
+        apply!(norm_sm_loc);
+        apply!(norm_sm_params);
+        apply!(norm_sm_nesting);
+        apply!(norm_sm_returns);
+        apply!(cfc_warning);
+        apply!(cfc_error);
+        apply!(loc_warning);
+        apply!(loc_error);
+        apply!(params_warning);
+        apply!(params_error);
+        apply!(nesting_warning);
+        apply!(nesting_error);
+        apply!(returns_warning);
+        apply!(returns_error);
     }
 
     /// All-defaults (equivalent to TypeScript thresholds).

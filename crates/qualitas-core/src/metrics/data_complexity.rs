@@ -42,50 +42,55 @@ fn compute_halstead_score(difficulty: f64, volume: f64) -> f64 {
         + crate::constants::DCI_VOLUME_WEIGHT * (volume / crate::constants::NORM_DCI_VOLUME)
 }
 
-/// Accumulate a single event into the Halstead count sets.
-fn accumulate_halstead_event(
-    event: &QualitasEvent,
-    distinct_operators: &mut HashSet<String>,
-    distinct_operands: &mut HashSet<String>,
-    total_operators: &mut u32,
-    total_operands: &mut u32,
-) {
-    match event {
-        QualitasEvent::Operator(op) => {
-            distinct_operators.insert(op.name.clone());
-            *total_operators += 1;
+/// Mutable accumulator for Halstead operator/operand counting.
+struct HalsteadAccumulator {
+    distinct_operators: HashSet<String>,
+    distinct_operands: HashSet<String>,
+    total_operators: u32,
+    total_operands: u32,
+}
+
+impl HalsteadAccumulator {
+    fn new() -> Self {
+        Self {
+            distinct_operators: HashSet::new(),
+            distinct_operands: HashSet::new(),
+            total_operators: 0,
+            total_operands: 0,
         }
-        QualitasEvent::Operand(operand) => {
-            distinct_operands.insert(operand.name.clone());
-            *total_operands += 1;
+    }
+
+    fn accumulate(&mut self, event: &QualitasEvent) {
+        match event {
+            QualitasEvent::Operator(op) => {
+                self.distinct_operators.insert(op.name.clone());
+                self.total_operators += 1;
+            }
+            QualitasEvent::Operand(operand) => {
+                self.distinct_operands.insert(operand.name.clone());
+                self.total_operands += 1;
+            }
+            _ => {}
         }
-        _ => {}
+    }
+
+    fn into_counts(self) -> HalsteadCounts {
+        HalsteadCounts {
+            distinct_operators: self.distinct_operators.len() as u32,
+            distinct_operands: self.distinct_operands.len() as u32,
+            total_operators: self.total_operators,
+            total_operands: self.total_operands,
+        }
     }
 }
 
 /// Collect Halstead operator/operand counts from IR events.
 fn collect_halstead_counts(events: &[QualitasEvent]) -> HalsteadCounts {
-    let mut distinct_operators: HashSet<String> = HashSet::new();
-    let mut distinct_operands: HashSet<String> = HashSet::new();
-    let mut total_operators: u32 = 0;
-    let mut total_operands: u32 = 0;
-
+    let mut acc = HalsteadAccumulator::new();
     for event in events {
-        accumulate_halstead_event(
-            event,
-            &mut distinct_operators,
-            &mut distinct_operands,
-            &mut total_operators,
-            &mut total_operands,
-        );
+        acc.accumulate(event);
     }
-
-    HalsteadCounts {
-        distinct_operators: distinct_operators.len() as u32,
-        distinct_operands: distinct_operands.len() as u32,
-        total_operators,
-        total_operands,
-    }
+    acc.into_counts()
 }
 
 /// Compute DCI (Halstead metrics) from a stream of IR events (language-agnostic).

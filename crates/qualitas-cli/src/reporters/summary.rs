@@ -463,6 +463,23 @@ fn place_marker(chars: &mut [String], pos: usize, width: usize, symbol: &str) {
 
 // ─── Score Deductions (function-only) ────────────────────────────────────────
 
+fn build_pillar_deductions(fns: &[&FunctionQualityReport]) -> Vec<(&'static str, f64, f64)> {
+    vec![
+        ("Cognitive Flow", loc_weighted(fns, |f| f.score_breakdown.cfc_penalty), 30.0),
+        ("Data Complexity", loc_weighted(fns, |f| f.score_breakdown.dci_penalty), 25.0),
+        ("Identifier References", loc_weighted(fns, |f| f.score_breakdown.irc_penalty), 20.0),
+        ("Dependency Coupling", loc_weighted(fns, |f| f.score_breakdown.dc_penalty), 15.0),
+        ("Structural", loc_weighted(fns, |f| f.score_breakdown.sm_penalty), 10.0),
+    ]
+}
+
+fn format_pillar_row(name: &str, penalty: f64, max_w: f64) -> String {
+    let fill = (penalty / max_w * 10.0).round().min(10.0) as usize;
+    let bar = format!("{}{}", "\u{2588}".repeat(fill), "\u{2591}".repeat(10 - fill));
+    let cfn = penalty_color(penalty, max_w);
+    format!("  {:<24} {:<13} {:>4.1} / {:.0} pts", name, cfn(&bar), penalty, max_w)
+}
+
 fn render_score_deductions(
     report: &ProjectQualityReport,
     fns: &[&FunctionQualityReport],
@@ -471,66 +488,19 @@ fn render_score_deductions(
         return vec![section_header("Score Deductions"), String::new()];
     }
 
-    let pillars = [
-        (
-            "Cognitive Flow",
-            loc_weighted(fns, |f| f.score_breakdown.cfc_penalty),
-            30.0,
-        ),
-        (
-            "Data Complexity",
-            loc_weighted(fns, |f| f.score_breakdown.dci_penalty),
-            25.0,
-        ),
-        (
-            "Identifier References",
-            loc_weighted(fns, |f| f.score_breakdown.irc_penalty),
-            20.0,
-        ),
-        (
-            "Dependency Coupling",
-            loc_weighted(fns, |f| f.score_breakdown.dc_penalty),
-            15.0,
-        ),
-        (
-            "Structural",
-            loc_weighted(fns, |f| f.score_breakdown.sm_penalty),
-            10.0,
-        ),
-    ];
-
-    let total_deducted = 100.0 - report.score;
-
+    let pillars = build_pillar_deductions(fns);
     let mut lines = vec![
         section_header("Score Deductions (points lost from 100)"),
-        format!(
-            "  {}",
-            "Each pillar deducts up to its weight. Weighted by lines of code.".dimmed()
-        ),
+        format!("  {}", "Each pillar deducts up to its weight. Weighted by lines of code.".dimmed()),
     ];
 
     for (name, penalty, max_w) in &pillars {
-        let fill = (penalty / max_w * 10.0).round().min(10.0) as usize;
-        let bar = format!(
-            "{}{}",
-            "\u{2588}".repeat(fill),
-            "\u{2591}".repeat(10 - fill)
-        );
-        let cfn = penalty_color(*penalty, *max_w);
-        lines.push(format!(
-            "  {:<24} {:<13} {:>4.1} / {:.0} pts",
-            name,
-            cfn(&bar),
-            penalty,
-            max_w
-        ));
+        lines.push(format_pillar_row(name, *penalty, *max_w));
     }
 
     lines.push(format!(
         "  {:<24} {:<13} {:>4.1} / 100 pts",
-        "Total deducted".bold(),
-        "",
-        total_deducted
+        "Total deducted".bold(), "", 100.0 - report.score
     ));
     lines.push(String::new());
     lines
@@ -575,16 +545,16 @@ fn render_grade_histogram(label: &str, items: &[ScopeItem]) -> Vec<String> {
     let max_c = max_c.max(1);
     let total = items.len() as u32;
 
-    let grades = [
-        (Grade::A, "A"),
-        (Grade::B, "B"),
-        (Grade::C, "C"),
-        (Grade::D, "D"),
-        (Grade::F, "F"),
+    let entries = [
+        HistogramEntry { grade: Grade::A, label: "A", count: counts[0] },
+        HistogramEntry { grade: Grade::B, label: "B", count: counts[1] },
+        HistogramEntry { grade: Grade::C, label: "C", count: counts[2] },
+        HistogramEntry { grade: Grade::D, label: "D", count: counts[3] },
+        HistogramEntry { grade: Grade::F, label: "F", count: counts[4] },
     ];
     let mut lines = vec![section_header(&format!("Grade Distribution ({label})"))];
-    for (i, (grade, lbl)) in grades.iter().enumerate() {
-        lines.push(format_histogram_row(*grade, lbl, counts[i], max_c, total));
+    for entry in &entries {
+        lines.push(format_histogram_row(entry, max_c, total));
     }
     lines.push(String::new());
     lines
@@ -598,21 +568,27 @@ fn count_grades(items: &[ScopeItem]) -> [u32; 5] {
     counts
 }
 
-fn format_histogram_row(
+struct HistogramEntry {
     grade: Grade,
-    label: &str,
+    label: &'static str,
     count: u32,
-    max_count: u32,
-    total: u32,
-) -> String {
+}
+
+fn format_histogram_row(entry: &HistogramEntry, max_count: u32, total: u32) -> String {
     let bar_width = 50;
-    let filled = (f64::from(count) / f64::from(max_count) * bar_width as f64).round() as usize;
+    let filled =
+        (f64::from(entry.count) / f64::from(max_count) * bar_width as f64).round() as usize;
     let bar = format!(
         "{}{}",
-        grade_color(grade, &"\u{2588}".repeat(filled)),
+        grade_color(entry.grade, &"\u{2588}".repeat(filled)),
         "\u{2591}".repeat(bar_width - filled),
     );
-    format!("  {label} {bar}  {count:>4} ({})", pct(count, total))
+    let count = entry.count;
+    format!(
+        "  {} {bar}  {count:>4} ({})",
+        entry.label,
+        pct(count, total)
+    )
 }
 
 // ─── Generic: Worst Items ────────────────────────────────────────────────────

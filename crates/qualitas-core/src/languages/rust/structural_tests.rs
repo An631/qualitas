@@ -1,6 +1,6 @@
 use super::RustAdapter;
 use crate::ir::language::LanguageAdapter;
-use crate::metrics::structural::compute_sm_from_events;
+use crate::metrics::structural::{compute_sm_from_events, SourceSpan};
 
 fn rs_first_fn_sm(source: &str) -> crate::types::StructuralResult {
     let adapter = RustAdapter;
@@ -12,9 +12,7 @@ fn rs_first_fn_sm(source: &str) -> crate::types::StructuralResult {
         .expect("Expected at least one function in Rust source");
     compute_sm_from_events(
         &func.events,
-        source,
-        func.byte_start,
-        func.byte_end,
+        &SourceSpan { source, start: func.byte_start, end: func.byte_end },
         func.param_count,
     )
 }

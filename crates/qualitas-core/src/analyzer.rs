@@ -10,7 +10,7 @@ use crate::metrics::{
     data_complexity::compute_dci,
     dependencies::{analyze_file_dependencies_ir, compute_dc_from_events},
     identifier_refs::compute_irc,
-    structural::{compute_sm_from_events, compute_sm_raw, compute_sm_with_loc},
+    structural::{compute_sm_from_events, compute_sm_raw, compute_sm_with_loc, SourceSpan},
 };
 use crate::scorer::{
     composite::{aggregate_scores, compute_score},
@@ -33,15 +33,25 @@ pub fn analyze_source_str(
     let file_deps = analyze_file_dependencies_ir(&extraction.imports);
     let (function_reports, class_reports, file_scope) = build_reports(extraction, source, &ctx);
 
-    Ok(assemble_file_report(
+    Ok(assemble_file_report(FileReportParts {
         file_path,
         source,
-        &ctx,
+        ctx: &ctx,
         function_reports,
         class_reports,
         file_deps,
         file_scope,
-    ))
+    }))
+}
+
+struct FileReportParts<'a> {
+    file_path: &'a str,
+    source: &'a str,
+    ctx: &'a AnalysisContext<'a>,
+    function_reports: Vec<FunctionQualityReport>,
+    class_reports: Vec<ClassQualityReport>,
+    file_deps: crate::types::DependencyCouplingResult,
+    file_scope: Option<Box<FunctionQualityReport>>,
 }
 
 struct AnalysisContext<'a> {
@@ -96,34 +106,30 @@ fn build_reports(
     (function_reports, class_reports, file_scope_report)
 }
 
-fn assemble_file_report(
-    file_path: &str,
-    source: &str,
-    ctx: &AnalysisContext<'_>,
-    function_reports: Vec<FunctionQualityReport>,
-    class_reports: Vec<ClassQualityReport>,
-    file_deps: crate::types::DependencyCouplingResult,
-    file_scope: Option<Box<FunctionQualityReport>>,
-) -> FileQualityReport {
-    let file_score = compute_file_score(&function_reports, &class_reports, file_scope.as_deref());
-    let fn_count = count_total_functions(&function_reports, &class_reports);
-    let class_count = class_reports.len() as u32;
-    let flagged = count_flagged(&function_reports);
+fn assemble_file_report(parts: FileReportParts<'_>) -> FileQualityReport {
+    let file_score = compute_file_score(
+        &parts.function_reports,
+        &parts.class_reports,
+        parts.file_scope.as_deref(),
+    );
+    let fn_count = count_total_functions(&parts.function_reports, &parts.class_reports);
+    let class_count = parts.class_reports.len() as u32;
+    let flagged = count_flagged(&parts.function_reports);
 
     FileQualityReport {
-        file_path: file_path.to_string(),
+        file_path: parts.file_path.to_string(),
         score: file_score,
-        grade: grade_from_score(file_score, ctx.profile),
-        needs_refactoring: file_score < ctx.threshold,
+        grade: grade_from_score(file_score, parts.ctx.profile),
+        needs_refactoring: file_score < parts.ctx.threshold,
         flags: vec![],
-        functions: function_reports,
-        classes: class_reports,
-        file_dependencies: file_deps,
-        total_lines: source.lines().count() as u32,
+        functions: parts.function_reports,
+        classes: parts.class_reports,
+        file_dependencies: parts.file_deps,
+        total_lines: parts.source.lines().count() as u32,
         function_count: fn_count,
         class_count,
         flagged_function_count: flagged,
-        file_scope,
+        file_scope: parts.file_scope,
     }
 }
 
@@ -177,9 +183,7 @@ fn build_fn_report_from_events(
     } else {
         compute_sm_from_events(
             &fe.events,
-            source,
-            fe.byte_start,
-            fe.byte_end,
+            &SourceSpan { source, start: fe.byte_start, end: fe.byte_end },
             fe.param_count,
         )
     };

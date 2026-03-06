@@ -25,42 +25,39 @@ pub fn saturate(x: f64) -> f64 {
 ///
 /// `weights` defaults to `WeightConfig::default()` if None.
 /// `profile` is used to resolve weights when weights is None.
+fn pillar_penalty(raw: f64, weight: f64) -> f64 {
+    saturate(raw) * 100.0 * weight
+}
+
 pub fn compute_score(
     metrics: &MetricBreakdown,
     weights: Option<&WeightConfig>,
     profile: Option<&str>,
 ) -> (f64, ScoreBreakdown) {
-    let resolved_weights = weights
+    let w = weights
         .cloned()
         .unwrap_or_else(|| weights_for_profile(profile.unwrap_or("default")));
 
-    // Normalize each pillar to a 0–∞ raw score, then saturate to [0, 1)
-    let cfc_raw = f64::from(metrics.cognitive_flow.score) / NORM_CFC;
-    let dci_raw = metrics.data_complexity.raw_score;
-    let irc_raw = metrics.identifier_reference.total_irc / NORM_IRC;
-    let dc_raw = metrics.dependency_coupling.raw_score;
-    let sm_raw = metrics.structural.raw_score;
+    let breakdown = compute_breakdown(metrics, &w);
+    let score = (100.0 - breakdown.total_penalty).max(0.0);
+    (score, breakdown)
+}
 
-    // saturate returns ∈ [0, 1); multiply by 100 to get ∈ [0, 100) penalty
-    let cfc_penalty = saturate(cfc_raw) * 100.0 * resolved_weights.cognitive_flow;
-    let dci_penalty = saturate(dci_raw) * 100.0 * resolved_weights.data_complexity;
-    let irc_penalty = saturate(irc_raw) * 100.0 * resolved_weights.identifier_reference;
-    let dc_penalty = saturate(dc_raw) * 100.0 * resolved_weights.dependency_coupling;
-    let sm_penalty = saturate(sm_raw) * 100.0 * resolved_weights.structural;
+fn compute_breakdown(metrics: &MetricBreakdown, w: &WeightConfig) -> ScoreBreakdown {
+    let cfc_penalty = pillar_penalty(f64::from(metrics.cognitive_flow.score) / NORM_CFC, w.cognitive_flow);
+    let dci_penalty = pillar_penalty(metrics.data_complexity.raw_score, w.data_complexity);
+    let irc_penalty = pillar_penalty(metrics.identifier_reference.total_irc / NORM_IRC, w.identifier_reference);
+    let dc_penalty = pillar_penalty(metrics.dependency_coupling.raw_score, w.dependency_coupling);
+    let sm_penalty = pillar_penalty(metrics.structural.raw_score, w.structural);
 
-    let total_penalty = cfc_penalty + dci_penalty + irc_penalty + dc_penalty + sm_penalty;
-    let score = (100.0 - total_penalty).max(0.0);
-
-    let breakdown = ScoreBreakdown {
+    ScoreBreakdown {
         cfc_penalty,
         dci_penalty,
         irc_penalty,
         dc_penalty,
         sm_penalty,
-        total_penalty,
-    };
-
-    (score, breakdown)
+        total_penalty: cfc_penalty + dci_penalty + irc_penalty + dc_penalty + sm_penalty,
+    }
 }
 
 /// Aggregate a list of function scores into a single file/class score.

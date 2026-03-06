@@ -33,13 +33,19 @@ struct ResolvedFlagThresholds {
     error: f64,
 }
 
+struct FlagDefaults {
+    name: &'static str,
+    enabled: bool,
+    warn: f64,
+    error: f64,
+}
+
 fn resolve_flag(
-    name: &str,
-    default_enabled: bool,
-    default_warn: f64,
-    default_error: f64,
+    defaults: &FlagDefaults,
     overrides: Option<&HashMap<String, FlagConfig>>,
 ) -> ResolvedFlagThresholds {
+    let (name, default_enabled, default_warn, default_error) =
+        (defaults.name, defaults.enabled, defaults.warn, defaults.error);
     match overrides.and_then(|m| m.get(name)) {
         Some(FlagConfig::Enabled(true)) => ResolvedFlagThresholds {
             enabled: true,
@@ -333,85 +339,80 @@ pub fn generate_flags(
     let mut flags = Vec::new();
     let o = flag_overrides;
 
+    check_metric_flags(metrics, o, &mut flags);
+    check_structural_flags(metrics, o, &mut flags);
+    check_coupling_flag(metrics, o, &mut flags);
+
+    flags
+}
+
+fn check_metric_flags(
+    metrics: &MetricBreakdown,
+    o: Option<&HashMap<String, FlagConfig>>,
+    flags: &mut Vec<RefactoringFlag>,
+) {
     macro_rules! check {
         ($n:expr, $en:expr, $w:expr, $e:expr, $chk:expr) => {{
-            let r = resolve_flag($n, $en, $w, $e, o);
+            let d = FlagDefaults { name: $n, enabled: $en, warn: $w, error: $e };
+            let r = resolve_flag(&d, o);
             if r.enabled {
                 flags.extend($chk(r.warn, r.error));
             }
         }};
     }
 
-    check!(
-        "highCognitiveFlow",
-        true,
-        f64::from(CFC_WARNING),
-        f64::from(CFC_ERROR),
-        |w, e| check_cfc_flags(metrics.cognitive_flow.score, w, e)
-    );
-    check!(
-        "highDataComplexity",
-        true,
-        DCI_DIFFICULTY_WARNING,
-        DCI_DIFFICULTY_ERROR,
-        |w, e| check_difficulty_flags(metrics.data_complexity.difficulty, w, e)
-    );
-    check!(
-        "highHalsteadEffort",
-        true,
-        HALSTEAD_EFFORT_WARNING,
-        HALSTEAD_EFFORT_ERROR,
-        |w, e| check_halstead_effort_flags(metrics.data_complexity.effort, w, e)
-    );
-    check!(
-        "highIdentifierChurn",
-        true,
-        IRC_WARNING,
-        IRC_ERROR,
-        |w, e| check_irc_flags(metrics.identifier_reference.total_irc, w, e)
-    );
-    check!(
-        "tooManyParams",
-        true,
-        f64::from(PARAMS_WARNING),
-        f64::from(PARAMS_ERROR),
-        |w, e| check_params_flags(metrics.structural.parameter_count, w, e)
-    );
-    check!(
-        "tooLong",
-        true,
-        f64::from(LOC_WARNING),
-        f64::from(LOC_ERROR),
-        |w, e| check_loc_flags(metrics.structural.loc, w, e)
-    );
-    check!(
-        "deepNesting",
-        true,
-        f64::from(NESTING_WARNING),
-        f64::from(NESTING_ERROR),
-        |w, e| check_nesting_flags(metrics.structural.max_nesting_depth, w, e)
-    );
-    check!(
-        "excessiveReturns",
-        false,
-        f64::from(RETURNS_WARNING),
-        f64::from(RETURNS_ERROR),
-        |w, e| check_returns_flags(metrics.structural.return_count, w, e)
-    );
-    check!(
-        "highCoupling",
-        true,
-        f64::from(IMPORT_WARNING),
-        f64::from(IMPORT_ERROR),
-        |w, e| check_coupling_flags(
+    check!("highCognitiveFlow", true, f64::from(CFC_WARNING), f64::from(CFC_ERROR),
+        |w, e| check_cfc_flags(metrics.cognitive_flow.score, w, e));
+    check!("highDataComplexity", true, DCI_DIFFICULTY_WARNING, DCI_DIFFICULTY_ERROR,
+        |w, e| check_difficulty_flags(metrics.data_complexity.difficulty, w, e));
+    check!("highHalsteadEffort", true, HALSTEAD_EFFORT_WARNING, HALSTEAD_EFFORT_ERROR,
+        |w, e| check_halstead_effort_flags(metrics.data_complexity.effort, w, e));
+    check!("highIdentifierChurn", true, IRC_WARNING, IRC_ERROR,
+        |w, e| check_irc_flags(metrics.identifier_reference.total_irc, w, e));
+}
+
+fn check_structural_flags(
+    metrics: &MetricBreakdown,
+    o: Option<&HashMap<String, FlagConfig>>,
+    flags: &mut Vec<RefactoringFlag>,
+) {
+    macro_rules! check {
+        ($n:expr, $en:expr, $w:expr, $e:expr, $chk:expr) => {{
+            let d = FlagDefaults { name: $n, enabled: $en, warn: $w, error: $e };
+            let r = resolve_flag(&d, o);
+            if r.enabled {
+                flags.extend($chk(r.warn, r.error));
+            }
+        }};
+    }
+
+    check!("tooManyParams", true, f64::from(PARAMS_WARNING), f64::from(PARAMS_ERROR),
+        |w, e| check_params_flags(metrics.structural.parameter_count, w, e));
+    check!("tooLong", true, f64::from(LOC_WARNING), f64::from(LOC_ERROR),
+        |w, e| check_loc_flags(metrics.structural.loc, w, e));
+    check!("deepNesting", true, f64::from(NESTING_WARNING), f64::from(NESTING_ERROR),
+        |w, e| check_nesting_flags(metrics.structural.max_nesting_depth, w, e));
+    check!("excessiveReturns", false, f64::from(RETURNS_WARNING), f64::from(RETURNS_ERROR),
+        |w, e| check_returns_flags(metrics.structural.return_count, w, e));
+}
+
+fn check_coupling_flag(
+    metrics: &MetricBreakdown,
+    o: Option<&HashMap<String, FlagConfig>>,
+    flags: &mut Vec<RefactoringFlag>,
+) {
+    let d = FlagDefaults {
+        name: "highCoupling", enabled: true,
+        warn: f64::from(IMPORT_WARNING), error: f64::from(IMPORT_ERROR),
+    };
+    let r = resolve_flag(&d, o);
+    if r.enabled {
+        flags.extend(check_coupling_flags(
             metrics.dependency_coupling.import_count,
             metrics.dependency_coupling.distinct_api_calls,
-            w,
-            e
-        )
-    );
-
-    flags
+            r.warn, r.error,
+        ));
+    }
 }
 
 #[cfg(test)]
