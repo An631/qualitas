@@ -103,29 +103,42 @@ fn handle_result(result: Result<bool, String>) -> ! {
     }
 }
 
+// ─── Runtime context ─────────────────────────────────────────────────────────
+
+struct RunContext<'a> {
+    options: AnalysisOptions,
+    format: String,
+    fail_on_flags: Option<&'a str>,
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 fn main() {
     let cli = Cli::parse();
     let config = config::load_config(&cli.path);
-    let (options, format) = config::merge_config(&cli, &config);
-
-    let fail_on_flags = cli
-        .fail_on_flags
-        .as_deref()
-        .or(config.fail_on_flags.as_deref());
 
     validate_path(&cli.path);
+    handle_result(dispatch(&cli, &config));
+}
 
-    let result = if Path::new(&cli.path).is_dir() {
-        run_project(&cli, &options, &format, &config, fail_on_flags)
-    } else {
-        let mut opts = options.clone();
-        opts.flag_overrides = resolve_flag_overrides(&cli.path, &config);
-        run_file(&cli.path, &opts, &format, fail_on_flags)
+fn dispatch(cli: &Cli, config: &QualitasConfig) -> Result<bool, String> {
+    let (options, format) = config::merge_config(cli, config);
+    let ctx = RunContext {
+        options,
+        format,
+        fail_on_flags: cli
+            .fail_on_flags
+            .as_deref()
+            .or(config.fail_on_flags.as_deref()),
     };
 
-    handle_result(result);
+    if Path::new(&cli.path).is_dir() {
+        run_project(&cli.path, &ctx, config)
+    } else {
+        let mut opts = ctx.options.clone();
+        opts.flag_overrides = resolve_flag_overrides(&cli.path, config);
+        run_file(&cli.path, &opts, &ctx.format, ctx.fail_on_flags)
+    }
 }
 
 // ─── Single-file analysis ─────────────────────────────────────────────────────
@@ -236,29 +249,27 @@ fn format_project_output(report: &ProjectQualityReport, format: &str) -> String 
 // ─── Project analysis ─────────────────────────────────────────────────────────
 
 fn run_project(
-    cli: &Cli,
-    options: &AnalysisOptions,
-    format: &str,
+    path: &str,
+    ctx: &RunContext<'_>,
     config: &qualitas_core::types::QualitasConfig,
-    fail_on_flags: Option<&str>,
 ) -> Result<bool, String> {
-    let include_tests = options.include_tests.unwrap_or(false);
-    let threshold = options.refactoring_threshold.unwrap_or(65.0);
+    let include_tests = ctx.options.include_tests.unwrap_or(false);
+    let threshold = ctx.options.refactoring_threshold.unwrap_or(65.0);
 
-    let files = collect_files(&cli.path, include_tests, config)?;
+    let files = collect_files(path, include_tests, config)?;
 
     if files.is_empty() {
-        eprintln!("qualitas: no supported files found in {}", cli.path);
+        eprintln!("qualitas: no supported files found in {path}");
         process::exit(2);
     }
 
-    let file_reports = analyze_all_files(&files, options, config);
+    let file_reports = analyze_all_files(&files, &ctx.options, config);
 
-    let report = build_project_report(&cli.path, file_reports, threshold);
+    let report = build_project_report(path, file_reports, threshold);
 
-    let below_threshold = check_project_threshold(&report, threshold, fail_on_flags);
+    let below_threshold = check_project_threshold(&report, threshold, ctx.fail_on_flags);
 
-    println!("{}", format_project_output(&report, format));
+    println!("{}", format_project_output(&report, &ctx.format));
     Ok(below_threshold)
 }
 

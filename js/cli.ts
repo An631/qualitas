@@ -72,11 +72,13 @@ async function runAnalysis(targetPath: string, opts: CliOpts): Promise<void> {
   const threshold = options.refactoringThreshold ?? 65;
   const failOnFlags = opts.failOnFlags ?? config.failOnFlags;
 
+  const check = { threshold, failOnFlags };
+
   try {
     const stat = safeStat(targetPath);
     const belowThreshold = stat.isDirectory()
-      ? await runProjectAnalysis(targetPath, options, format, threshold, failOnFlags)
-      : await runFileAnalysis(targetPath, options, format, threshold, failOnFlags);
+      ? await runProjectAnalysis(targetPath, options, format, check)
+      : await runFileAnalysis(targetPath, options, format, check);
     process.exit(belowThreshold ? 1 : 0);
   } catch (err) {
     console.error(`qualitas error: ${(err as Error).message}`);
@@ -93,20 +95,24 @@ function safeStat(targetPath: string): Stats {
   }
 }
 
+interface CheckConfig {
+  threshold: number;
+  failOnFlags?: string;
+}
+
 async function runProjectAnalysis(
   targetPath: string,
   options: AnalysisOptions,
   format: string,
-  threshold: number,
-  failOnFlags?: string,
+  check: CheckConfig,
 ): Promise<boolean> {
   const report = await analyzeProject(targetPath, options);
   const belowThreshold =
-    report.score < threshold ||
+    report.score < check.threshold ||
     report.files.some(
       (f) =>
-        f.functions.some((fn) => fn.score < threshold) ||
-        hasFlagsAtSeverity(f.functions, failOnFlags),
+        f.functions.some((fn) => fn.score < check.threshold) ||
+        hasFlagsAtSeverity(f.functions, check.failOnFlags),
     );
 
   console.log(formatProjectOutput(report, format));
@@ -117,14 +123,13 @@ async function runFileAnalysis(
   targetPath: string,
   options: AnalysisOptions,
   format: string,
-  threshold: number,
-  failOnFlags?: string,
+  check: CheckConfig,
 ): Promise<boolean> {
   const report = await analyzeFile(targetPath, options);
   const belowThreshold =
-    report.score < threshold ||
-    report.functions.some((fn) => fn.score < threshold) ||
-    hasFlagsAtSeverity(report.functions, failOnFlags);
+    report.score < check.threshold ||
+    report.functions.some((fn) => fn.score < check.threshold) ||
+    hasFlagsAtSeverity(report.functions, check.failOnFlags);
 
   console.log(formatFileOutput(report, format));
   return belowThreshold;

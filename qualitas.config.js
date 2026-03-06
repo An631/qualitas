@@ -26,7 +26,7 @@ module.exports = {
   // 'warn'  → fail on any warning or error flag (zero tolerance)
   // 'error' → fail only on error-level flags
   // Omit or set to false to disable (default: score-only threshold)
-  // failOnFlags: 'error',
+  failOnFlags: 'error',
 
   /** Flag configuration. Each flag can be:
    *   true            → enabled with default thresholds
