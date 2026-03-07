@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4
+
+### Patch Changes
+
+- [#9](https://github.com/An631/qualitas/pull/9) [`40fd1be`](https://github.com/An631/qualitas/commit/40fd1be8e03f6eba6bfc5212f81cab5905c5f455) Thanks [@An631](https://github.com/An631)! - Enabling publishing of platform binaries through github cli
+
 ## 0.1.3
 
 ### Patch Changes
