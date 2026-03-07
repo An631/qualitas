@@ -45,7 +45,10 @@
     "quality:report-markdown  ": "cargo run -p qualitas-cli -- ./ -f markdown",
     "quality:report-json": "cargo run -p qualitas-cli -- ./ -f json",
     "format": "node scripts/format.js",
-    "format:check": "cargo fmt --check && prettier --check \"js/**/*.ts\" \"tests/**/*.ts\""
+    "format:check": "cargo fmt --check && prettier --check \"js/**/*.ts\" \"tests/**/*.ts\"",
+    "changeset": "changeset",
+    "version:bump": "changeset version",
+    "release": "changeset publish"
   },
   "files": [
     "dist",
@@ -71,6 +74,8 @@
     "picocolors": "^1.1.0"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "^0.6.0",
+    "@changesets/cli": "^2.30.0",
     "@napi-rs/cli": "^3",
     "@types/jest": "^29.5.0",
     "@types/node": "^22.0.0",

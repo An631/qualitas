@@ -51,7 +51,7 @@ jobs:
 
   # ─── JS: build native + integration tests ────────────────────────────────
   js:
-    name: JS integration tests (Linux x64)
+    name: JS build native & tests & lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -98,7 +98,29 @@ jobs:
       - name: Run JS integration tests
         run: npm run test:ts
 
-  # ─── Confirm both jobs pass ───────────────────────────────────────────────
+  # ─── Check for changeset on PRs ──────────────────────────────────────────
+  changeset:
+    name: Changeset check
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check for changeset
+        run: npx changeset status --since=origin/main
+
+  # ─── Confirm all jobs pass ──────────────────────────────────────────────
   all-pass:
     name: All checks passed
     needs: [rust, js]
