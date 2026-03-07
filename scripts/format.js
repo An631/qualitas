@@ -33,6 +33,13 @@ if (files.length === 0) {
 // Separate files by language
 const rsFiles = files.filter((f) => extname(f) === '.rs');
 const tsFiles = files.filter((f) => ['.ts', '.js', '.mjs', '.cjs'].includes(extname(f)));
+const hasPackageJson = files.some((f) => f === 'package.json');
+
+// If the package.json file is being modified, run `npm pkg fix` to ensure it stays well-formatted and valid.
+if (hasPackageJson) {
+  console.log('Running npm pkg fix on package.json...');
+  run('npm pkg fix');
+}
 
 if (rsFiles.length > 0) {
   console.log('Formatting rust files...');
