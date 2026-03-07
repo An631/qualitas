@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5
+
+### Patch Changes
+
+- [#11](https://github.com/An631/qualitas/pull/11) [`aa2309c`](https://github.com/An631/qualitas/commit/aa2309ccce79b610ef9867b4742788d40ccecdfb) Thanks [@An631](https://github.com/An631)! - Adding version syncing for platform binaries packages
+
 ## 0.1.4
 
 ### Patch Changes
