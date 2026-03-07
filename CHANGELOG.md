@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.6
+
+### Patch Changes
+
+- [#13](https://github.com/An631/qualitas/pull/13) [`1421ffe`](https://github.com/An631/qualitas/commit/1421ffecc452a65d751b29c32ff854acff1045d0) Thanks [@An631](https://github.com/An631)! - Merging the binaries publishing pipeline with teh release pipeline to ensure they happen at the same time as teh main qualitas package
+
 ## 0.1.5
 
 ### Patch Changes
