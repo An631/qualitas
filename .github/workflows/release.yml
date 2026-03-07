@@ -237,12 +237,24 @@ jobs:
 
       - name: Publish platform packages
         run: |
+          FAILED=0
           for pkg_dir in npm/*/; do
             if [ -f "$pkg_dir/package.json" ]; then
               echo "Publishing $pkg_dir..."
-              npm publish "./$pkg_dir" --provenance --access public || echo "Warning: $pkg_dir may already be published"
+              if ! npm publish "./$pkg_dir" --provenance --access public 2>&1 | tee /tmp/npm-out.log; then
+                if grep -q "EPUBLISHCONFLICT\|You cannot publish over" /tmp/npm-out.log; then
+                  echo "Skipping $pkg_dir (already published)"
+                else
+                  echo "ERROR: Failed to publish $pkg_dir"
+                  FAILED=1
+                fi
+              fi
             fi
           done
+          if [ "$FAILED" -eq 1 ]; then
+            echo "One or more platform packages failed to publish"
+            exit 1
+          fi
 
       - name: Get version
         id: version
