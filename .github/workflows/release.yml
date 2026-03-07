@@ -7,12 +7,195 @@ on:
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
-  release:
-    name: Release
+  # ─── Step 1: Version PR or trigger publish ───────────────────────────────
+  changesets:
+    name: Changesets
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
+    outputs:
+      published: ${{ steps.changesets.outputs.published }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --omit=optional
+
+      - name: Run changesets
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          title: 'chore: version packages'
+          commit: 'chore: version packages'
+          version: bash scripts/version.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Read version
+        id: version
+        if: steps.changesets.outputs.hasChangesets == 'false'
+        run: echo "version=$(node -p 'require(\"./package.json\").version')" >> "$GITHUB_OUTPUT"
+
+  # ─── Step 2: Build native binaries (only when publishing) ───────────────
+  build-native:
+    name: Build napi ${{ matrix.settings.name }}
+    needs: changesets
+    if: needs.changesets.outputs.published == 'true' || needs.changesets.outputs.version != ''
+    runs-on: ${{ matrix.settings.host }}
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - name: linux-x64-gnu
+            host: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - name: linux-arm64-gnu
+            host: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            cross: true
+          - name: darwin-x64
+            host: macos-latest
+            target: x86_64-apple-darwin
+          - name: darwin-arm64
+            host: macos-latest
+            target: aarch64-apple-darwin
+          - name: win32-x64-msvc
+            host: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.settings.target }}
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.settings.name }}
+
+      - name: Install cross-compilation tools (arm64)
+        if: matrix.settings.cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm ci --omit=optional
+
+      - name: Build native addon
+        run: npm run build -- --target ${{ matrix.settings.target }}
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindings-${{ matrix.settings.name }}
+          path: '*.node'
+          if-no-files-found: error
+
+  # ─── Step 3: Build standalone CLI binaries ───────────────────────────────
+  build-cli:
+    name: Build CLI ${{ matrix.settings.name }}
+    needs: changesets
+    if: needs.changesets.outputs.published == 'true' || needs.changesets.outputs.version != ''
+    runs-on: ${{ matrix.settings.host }}
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - name: linux-x64
+            host: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary: qualitas
+            archive: qualitas-linux-x64.tar.gz
+          - name: linux-arm64
+            host: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            binary: qualitas
+            archive: qualitas-linux-arm64.tar.gz
+            cross: true
+          - name: darwin-x64
+            host: macos-latest
+            target: x86_64-apple-darwin
+            binary: qualitas
+            archive: qualitas-darwin-x64.tar.gz
+          - name: darwin-arm64
+            host: macos-latest
+            target: aarch64-apple-darwin
+            binary: qualitas
+            archive: qualitas-darwin-arm64.tar.gz
+          - name: win32-x64
+            host: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary: qualitas.exe
+            archive: qualitas-win32-x64.zip
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.settings.target }}
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: cli-${{ matrix.settings.name }}
+
+      - name: Install cross-compilation tools (arm64)
+        if: matrix.settings.cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build CLI binary
+        run: cargo build --release -p qualitas-cli --target ${{ matrix.settings.target }}
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cd target/${{ matrix.settings.target }}/release
+          tar czf ../../../${{ matrix.settings.archive }} ${{ matrix.settings.binary }}
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "target/${{ matrix.settings.target }}/release/${{ matrix.settings.binary }}" -DestinationPath "${{ matrix.settings.archive }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.settings.name }}
+          path: ${{ matrix.settings.archive }}
+          if-no-files-found: error
+
+  # ─── Step 4: Publish everything to npm + GitHub Release ──────────────────
+  publish:
+    name: Publish
+    needs: [changesets, build-native, build-cli]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
       id-token: write
     steps:
       - uses: actions/checkout@v4
@@ -22,25 +205,53 @@ jobs:
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
-          cache: 'npm'
 
-      - name: Upgrade npm for trusted publishing (OIDC)
+      - name: Upgrade npm for trusted publishing
         run: npm install -g npm@latest
 
-      - name: Configure npm for provenance
+      - name: Configure npm
         run: |
           npm config set provenance true
           npm config set access public
 
-      - name: Install dependencies
-        run: npm ci --omit=optional
-
-      - name: Create Release PR or Publish
-        uses: changesets/action@v1
+      - name: Download all native artifacts
+        uses: actions/download-artifact@v4
         with:
-          title: 'chore: version packages'
-          commit: 'chore: version packages'
-          version: bash scripts/version.sh
-          publish: npm run release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          path: artifacts
+
+      - name: Move bindings to platform packages
+        run: |
+          for dir in artifacts/bindings-*; do
+            name=$(basename "$dir" | sed 's/bindings-//')
+            mkdir -p "npm/$name"
+            cp "$dir"/*.node "npm/$name/"
+            echo "Moved binary to npm/$name/:"
+            ls -la "npm/$name/"*.node
+          done
+
+      - name: Publish platform packages
+        run: |
+          for pkg_dir in npm/*/; do
+            if [ -f "$pkg_dir/package.json" ]; then
+              echo "Publishing $pkg_dir..."
+              npm publish "./$pkg_dir" --provenance --access public || echo "[Warning] $pkg_dir may already be published"
+            fi
+          done
+
+      - name: Publish root package
+        run: npm publish --provenance --access public || echo "[Warning] root package may already be published"
+
+      - name: Create git tag
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          git tag "v$VERSION" || true
+          git push origin "v$VERSION" || true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.changesets.outputs.version }}
+          files: |
+            artifacts/**/*.node
+            artifacts/cli-*/*
+          generate_release_notes: true
