@@ -7,16 +7,16 @@ on:
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
-  # ─── Step 1: Version PR or trigger publish ───────────────────────────────
+  # ─── Step 1: Version PR or publish root package ──────────────────────────
   changesets:
     name: Changesets
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
+      id-token: write
     outputs:
       published: ${{ steps.changesets.outputs.published }}
-      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -24,7 +24,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
+
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@latest
+
+      - name: Configure npm
+        run: |
+          npm config set provenance true
+          npm config set access public
 
       - name: Install dependencies
         run: npm ci --omit=optional
@@ -36,19 +45,15 @@ jobs:
           title: 'chore: version packages'
           commit: 'chore: version packages'
           version: bash scripts/version.sh
+          publish: npm run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Read version
-        id: version
-        if: steps.changesets.outputs.hasChangesets == 'false'
-        run: echo "version=$(node -p 'require(\"./package.json\").version')" >> "$GITHUB_OUTPUT"
-
-  # ─── Step 2: Build native binaries (only when publishing) ───────────────
+  # ─── Step 2: Build native binaries (only after root was published) ──────
   build-native:
     name: Build napi ${{ matrix.settings.name }}
     needs: changesets
-    if: needs.changesets.outputs.published == 'true' || needs.changesets.outputs.version != ''
+    if: needs.changesets.outputs.published == 'true'
     runs-on: ${{ matrix.settings.host }}
     strategy:
       fail-fast: false
@@ -114,7 +119,7 @@ jobs:
   build-cli:
     name: Build CLI ${{ matrix.settings.name }}
     needs: changesets
-    if: needs.changesets.outputs.published == 'true' || needs.changesets.outputs.version != ''
+    if: needs.changesets.outputs.published == 'true'
     runs-on: ${{ matrix.settings.host }}
     strategy:
       fail-fast: false
@@ -189,10 +194,11 @@ jobs:
           path: ${{ matrix.settings.archive }}
           if-no-files-found: error
 
-  # ─── Step 4: Publish everything to npm + GitHub Release ──────────────────
-  publish:
-    name: Publish
+  # ─── Step 4: Publish platform packages + GitHub Release ──────────────────
+  publish-platform:
+    name: Publish platform packages & GitHub Release
     needs: [changesets, build-native, build-cli]
+    if: needs.changesets.outputs.published == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -214,7 +220,7 @@ jobs:
           npm config set provenance true
           npm config set access public
 
-      - name: Download all native artifacts
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -234,23 +240,25 @@ jobs:
           for pkg_dir in npm/*/; do
             if [ -f "$pkg_dir/package.json" ]; then
               echo "Publishing $pkg_dir..."
-              npm publish "./$pkg_dir" --provenance --access public || echo "[Warning] $pkg_dir may already be published"
+              npm publish "./$pkg_dir" --provenance --access public || echo "Warning: $pkg_dir may already be published"
             fi
           done
 
-      - name: Publish root package
-        run: npm publish --provenance --access public || echo "[Warning] root package may already be published"
+      - name: Get version
+        id: version
+        run: echo "version=$(node -e 'console.log(require("./package.json").version)')" >> "$GITHUB_OUTPUT"
 
       - name: Create git tag
         run: |
-          VERSION=$(node -p "require('./package.json').version")
-          git tag "v$VERSION" || true
-          git push origin "v$VERSION" || true
+          git tag "v${{ steps.version.outputs.version }}" || true
+          git push origin "v${{ steps.version.outputs.version }}" || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.changesets.outputs.version }}
+          tag_name: v${{ steps.version.outputs.version }}
           files: |
             artifacts/**/*.node
             artifacts/cli-*/*
