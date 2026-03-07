@@ -1,6 +1,6 @@
 {
   "name": "@qualitas/binding-linux-arm64-gnu",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "qualitas native binary for Linux arm64 (glibc)",
   "keywords": [
     "qualitas",
