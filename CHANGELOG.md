@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2
+
+### Patch Changes
+
+- [#5](https://github.com/An631/qualitas/pull/5) [`2483254`](https://github.com/An631/qualitas/commit/24832544d3efd355d40874e7aea4276b9c358199) Thanks [@An631](https://github.com/An631)! - Adding a version script to ensure the version command is not misinterpreted by Shell
+
 ## 0.1.1
 
 ### Patch Changes
