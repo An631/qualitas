@@ -31,7 +31,7 @@ jobs:
           cache: 'npm'
 
       - name: Install npm dependencies
-        run: npm ci
+        run: npm ci --omit=optional
 
       - name: Build native addon
         run: npm run build:debug
@@ -67,7 +67,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --omit=optional
 
       - name: Check for changeset
         run: npx changeset status --since=origin/main
