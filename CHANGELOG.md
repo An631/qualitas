@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.7
+
+### Patch Changes
+
+- [#15](https://github.com/An631/qualitas/pull/15) [`7c4d66e`](https://github.com/An631/qualitas/commit/7c4d66e9cbb381716d7dc8fb21dfa405f54108a3) Thanks [@An631](https://github.com/An631)! - fix: release workflow now builds binaries before publishing platform packages
+
 ## 0.1.6
 
 ### Patch Changes
