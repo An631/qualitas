@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.8
+
+### Patch Changes
+
+- [#17](https://github.com/An631/qualitas/pull/17) [`1b1b8b5`](https://github.com/An631/qualitas/commit/1b1b8b5ad24a6016c8d42c72fb58f19eee117a90) Thanks [@An631](https://github.com/An631)! - Improving release.yml binaries publishing errors
+
 ## 0.1.7
 
 ### Patch Changes
