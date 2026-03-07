@@ -10,9 +10,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # ─── Rust: lint + unit tests ──────────────────────────────────────────────
-  rust:
-    name: Rust tests & lint
+  verify:
+    name: Verify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,37 +20,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-
-      - name: Check formatting
-        run: cargo fmt --all --check
-
-      - name: Clippy (deny warnings)
-        run: cargo clippy --workspace --all-targets -- -D warnings
-
-      - name: Run Rust unit tests
-        run: cargo test -p qualitas-core
-
-      - name: Build standalone CLI
-        run: cargo build -p qualitas-cli
-
-      - name: CLI smoke test
-        run: ./target/debug/qualitas --help
-
-      - name: Self-analysis quality gate
-        run: ./target/debug/qualitas ./
-
-  # ─── JS: build native + integration tests ────────────────────────────────
-  js:
-    name: JS build native & tests & lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -65,32 +33,22 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Check Prettier formatting
-        run: npx prettier --check "js/**/*.ts" "tests/**/*.ts"
-
-      - name: ESLint
-        run: npx eslint js/ tests/
-
-      - name: Markdown lint
-        run: npx markdownlint-cli2 "**/*.md" "!node_modules" "!target" "!.changeset"
-
-      - name: Verify cargo is available
-        run: cargo --version && rustc --version
-
-      - name: Build native addon (debug)
+      - name: Build native addon
         run: npm run build:debug
 
       - name: Verify native binary exists
-        run: ls -la qualitas_napi.*.node || (echo "Build may have failed. Checking napi output:" && find . -name "*.node" -not -path "./node_modules/*" 2>/dev/null)
+        run: ls -la qualitas_napi.*.node
 
       - name: Compile TypeScript
         run: npm run build:ts
 
-      - name: TypeScript type check
-        run: npx tsc --noEmit
+      - name: Run verify (tests + lint + format + quality)
+        run: npm run verify
 
-      - name: Run JS integration tests
-        run: npm run test:ts
+      - name: CLI smoke test
+        run: |
+          cargo build -p qualitas-cli
+          ./target/debug/qualitas --help
 
   # ─── Check for changeset on PRs ──────────────────────────────────────────
   changeset:
@@ -113,18 +71,3 @@ jobs:
 
       - name: Check for changeset
         run: npx changeset status --since=origin/main
-
-  # ─── Confirm all jobs pass ──────────────────────────────────────────────
-  all-pass:
-    name: All checks passed
-    needs: [rust, js]
-    runs-on: ubuntu-latest
-    if: always()
-    steps:
-      - name: Check all jobs
-        run: |
-          if [[ "${{ needs.rust.result }}" != "success" || "${{ needs.js.result }}" != "success" ]]; then
-            echo "One or more jobs failed"
-            exit 1
-          fi
-          echo "All checks passed"
