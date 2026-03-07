@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3
+
+### Patch Changes
+
+- [#7](https://github.com/An631/qualitas/pull/7) [`40b4f3f`](https://github.com/An631/qualitas/commit/40b4f3fd46cebd4bfb3f168ab6c3b100f415c347) Thanks [@An631](https://github.com/An631)! - Adding package.json file formatting verification
+
 ## 0.1.2
 
 ### Patch Changes
