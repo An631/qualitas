@@ -40,7 +40,7 @@ jobs:
         with:
           title: 'chore: version packages'
           commit: 'chore: version packages'
-          version: npx changeset version && npm install --omit=optional --package-lock-only
+          version: bash scripts/version.sh
           publish: npm run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
