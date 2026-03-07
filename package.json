@@ -34,7 +34,7 @@
     "test:ts": "jest",
     "test:rs": "cargo test -p qualitas-core",
     "lint": "npm run lint:rs && npm run lint:ts && npm run lint:md",
-    "lint:md": "markdownlint-cli2 \"**/*.md\" \"!node_modules\" \"!target\"",
+    "lint:md": "markdownlint-cli2 \"**/*.md\" \"!node_modules\" \"!target\" \"!.changeset\"",
     "lint:rs": "cargo clippy --all-targets -- -D warnings",
     "lint:ts": "tsc --noEmit && eslint js/ tests/",
     "quality": "cargo run -p qualitas-cli -- ./",
@@ -46,7 +46,7 @@
     "quality:report-json": "cargo run -p qualitas-cli -- ./ -f json",
     "format": "node scripts/format.js",
     "format:check": "cargo fmt --check && prettier --check \"js/**/*.ts\" \"tests/**/*.ts\"",
-    "changeset": "changeset",
+    "changeset": "changeset && git add .changeset/* && git commit .changeset/*.md -m \"Added changeset file\"",
     "version:bump": "changeset version",
     "release": "changeset publish"
   },
