@@ -1,6 +1,6 @@
 {
   "name": "qualitas",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Multi-language code quality measurement — 5-pillar Quality Score based on CC-Sonar, Halstead, and eye-tracking research",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
