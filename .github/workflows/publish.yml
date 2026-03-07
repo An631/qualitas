@@ -1,4 +1,4 @@
-name: Release
+name: Build Binaries & GitHub Release
 
 on:
   push:
@@ -20,28 +20,23 @@ jobs:
           - name: linux-x64-gnu
             host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact: qualitas_napi.linux-x64-gnu.node
 
           - name: linux-arm64-gnu
             host: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            artifact: qualitas_napi.linux-arm64-gnu.node
             cross: true
 
           - name: darwin-x64
             host: macos-latest
             target: x86_64-apple-darwin
-            artifact: qualitas_napi.darwin-x64.node
 
           - name: darwin-arm64
             host: macos-latest
             target: aarch64-apple-darwin
-            artifact: qualitas_napi.darwin-arm64.node
 
           - name: win32-x64-msvc
             host: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact: qualitas_napi.win32-x64-msvc.node
 
     steps:
       - uses: actions/checkout@v4
@@ -72,8 +67,7 @@ jobs:
         run: npm ci
 
       - name: Build native addon
-        run: |
-          npm run build -- --target ${{ matrix.settings.target }}
+        run: npm run build -- --target ${{ matrix.settings.target }}
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
 
@@ -166,7 +160,7 @@ jobs:
           path: ${{ matrix.settings.archive }}
           if-no-files-found: error
 
-  # ─── Run tests on built native binaries ──────────────────────────────────
+  # ─── Test napi bindings on each platform ─────────────────────────────────
   test-native:
     name: Test ${{ matrix.os }}
     needs: build-native
@@ -205,60 +199,20 @@ jobs:
       - name: Run JS tests
         run: npm run test:ts
 
-  # ─── Publish to npm ───────────────────────────────────────────────────────
-  publish:
-    name: Publish to npm
+  # ─── Create GitHub Release with all binaries ─────────────────────────────
+  github-release:
+    name: GitHub Release
     needs: [test-native, build-cli]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-          cache: 'npm'
-
-      - name: Install npm dependencies
-        run: npm ci
-
-      - name: Download all native artifacts
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: Move napi bindings to npm packages
-        shell: bash
-        run: |
-          for dir in artifacts/bindings-*; do
-            name=$(basename "$dir" | sed 's/bindings-//')
-            mkdir -p "npm/$name"
-            cp "$dir"/*.node "npm/$name/"
-          done
-
-      - name: Compile TypeScript
-        run: npm run build:ts
-
-      - name: Publish platform packages
-        run: |
-          for pkg_dir in npm/*/; do
-            if [ -f "$pkg_dir/package.json" ]; then
-              echo "Publishing $pkg_dir"
-              npm publish "$pkg_dir" --access public
-            fi
-          done
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Publish main package
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Create GitHub release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
