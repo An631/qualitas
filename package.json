@@ -34,7 +34,7 @@
     "test:ts": "jest",
     "test:rs": "cargo test -p qualitas-core",
     "lint": "npm run lint:rs && npm run lint:ts && npm run lint:md",
-    "lint:md": "markdownlint-cli2 \"**/*.md\" \"!node_modules\" \"!target\"",
+    "lint:md": "markdownlint-cli2 \"**/*.md\" \"!node_modules\" \"!target\" \"!.changeset\"",
     "lint:rs": "cargo clippy --all-targets -- -D warnings",
     "lint:ts": "tsc --noEmit && eslint js/ tests/",
     "quality": "cargo run -p qualitas-cli -- ./",

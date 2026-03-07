@@ -72,7 +72,7 @@ jobs:
         run: npx eslint js/ tests/
 
       - name: Markdown lint
-        run: npx markdownlint-cli2 "**/*.md" "!node_modules" "!target"
+        run: npx markdownlint-cli2 "**/*.md" "!node_modules" "!target" "!.changeset"
 
       - name: Verify cargo is available
         run: cargo --version && rustc --version
