@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1
+
+### Patch Changes
+
+- [#1](https://github.com/An631/qualitas/pull/1) [`4ff4e8b`](https://github.com/An631/qualitas/commit/4ff4e8b1aa8bcfdbb5227b54e05caefe2df37119) Thanks [@An631](https://github.com/An631)! - Introducing the RELEASING documentation and using this as a test for first ever automatic NPM publish and git releases
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
