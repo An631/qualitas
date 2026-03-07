@@ -27,18 +27,21 @@ if (files.length === 0) {
   run('cargo fmt');
   console.log('Formatting typescript files...');
   run(`${prettier} --write "js/**/*.ts" "tests/**/*.ts"`);
+  console.log('Fixing package.json files...');
+  run('npm pkg fix');
   process.exit(0);
 }
 
-// Separate files by language
+// Separate files by type
 const rsFiles = files.filter((f) => extname(f) === '.rs');
 const tsFiles = files.filter((f) => ['.ts', '.js', '.mjs', '.cjs'].includes(extname(f)));
-const hasPackageJson = files.some((f) => f === 'package.json');
+const pkgJsonFiles = files.filter((f) => f.endsWith('package.json'));
 
-// If the package.json file is being modified, run `npm pkg fix` to ensure it stays well-formatted and valid.
-if (hasPackageJson) {
-  console.log('Running npm pkg fix on package.json...');
-  run('npm pkg fix');
+// Run `npm pkg fix` in the directory of each staged package.json
+for (const pkgFile of pkgJsonFiles) {
+  const dir = require('path').dirname(pkgFile) || '.';
+  console.log(`Running npm pkg fix in ${dir}...`);
+  run(`npm pkg fix --prefix ${dir}`);
 }
 
 if (rsFiles.length > 0) {

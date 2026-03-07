@@ -1,4 +1,4 @@
-name: Build Binaries & GitHub Release
+name: Build Binaries & Publish Platform Packages
 
 on:
   push:
@@ -60,11 +60,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install npm dependencies
-        run: npm ci
+        run: npm ci --omit=optional
 
       - name: Build native addon
         run: npm run build -- --target ${{ matrix.settings.target }}
@@ -181,11 +181,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install npm dependencies
-        run: npm ci
+        run: npm ci --omit=optional
 
       - name: Download native artifact
         uses: actions/download-artifact@v4
@@ -199,10 +199,58 @@ jobs:
       - name: Run JS tests
         run: npm run test:ts
 
+  # ─── Publish platform packages to npm ────────────────────────────────────
+  publish-platform:
+    name: Publish platform packages
+    needs: test-native
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@latest
+
+      - name: Configure npm for provenance
+        run: |
+          npm config set provenance true
+          npm config set access public
+
+      - name: Download all native artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Move bindings to platform packages
+        run: |
+          for dir in artifacts/bindings-*; do
+            name=$(basename "$dir" | sed 's/bindings-//')
+            echo "Moving $dir/*.node to npm/$name/"
+            mkdir -p "npm/$name"
+            cp "$dir"/*.node "npm/$name/"
+            ls -la "npm/$name/"
+          done
+
+      - name: Publish platform packages
+        run: |
+          for pkg_dir in npm/*/; do
+            if [ -f "$pkg_dir/package.json" ]; then
+              echo "Publishing $pkg_dir..."
+              npm publish "$pkg_dir" --provenance --access public || echo "Warning: failed to publish $pkg_dir (may already exist)"
+            fi
+          done
+
   # ─── Create GitHub Release with all binaries ─────────────────────────────
   github-release:
     name: GitHub Release
-    needs: [test-native, build-cli]
+    needs: [test-native, build-cli, publish-platform]
     runs-on: ubuntu-latest
     permissions:
       contents: write
