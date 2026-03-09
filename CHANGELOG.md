@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.9
+
+### Patch Changes
+
+- [#19](https://github.com/An631/qualitas/pull/19) [`310885c`](https://github.com/An631/qualitas/commit/310885c2af8a6b194171a19da4c8499dbd602617) Thanks [@An631](https://github.com/An631)! - Fix panic on multi-byte UTF-8 string literals when truncating to 32 bytes
+
 ## 0.1.8
 
 ### Patch Changes
