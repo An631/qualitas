@@ -833,7 +833,12 @@ impl<'a> Visit<'a> for TsBodyEventEmitter<'_> {
     }
 
     fn visit_string_literal(&mut self, it: &StringLiteral<'a>) {
-        let key = &it.value.as_str()[..it.value.len().min(32)];
+        let s = it.value.as_str();
+        let mut end = s.len().min(32);
+        while !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        let key = &s[..end];
         self.events.push(QualitasEvent::Operand(OperandEvent {
             name: key.to_string(),
         }));

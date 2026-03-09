@@ -291,6 +291,24 @@ fn ts_syntax_error_does_not_panic() {
 }
 
 #[test]
+fn ts_multibyte_utf8_string_literals_do_not_panic() {
+    let adapter = TypeScriptAdapter;
+    // String with 30 ASCII bytes + a 3-byte UTF-8 char puts byte 32 mid-char
+    let source = "function f() {\n  const a = \"==============================\u{2550}\u{2550}\";\n  const b = \"\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\";\n  return a + b;\n}\n";
+    check_conformance(&adapter, source, "utf8.ts");
+
+    // Also verify full analysis pipeline doesn't panic
+    let source2 = "function g() { return \"==============================\u{2550}\u{2550}\"; }";
+    let report = crate::analyzer::analyze_source_str(
+        source2,
+        "utf8.ts",
+        &crate::types::AnalysisOptions::default(),
+    )
+    .unwrap();
+    assert!(report.score > 0.0);
+}
+
+#[test]
 fn ts_nested_callbacks_have_balanced_nesting() {
     let adapter = TypeScriptAdapter;
     check_conformance(
