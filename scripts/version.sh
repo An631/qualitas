@@ -20,4 +20,16 @@ for pkg in npm/*/package.json; do
   "
 done
 
+# Sync optionalDependencies ranges in root package.json to ^<new-version>
+node -e "
+  const fs = require('fs');
+  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+  if (pkg.optionalDependencies) {
+    for (const name of Object.keys(pkg.optionalDependencies)) {
+      pkg.optionalDependencies[name] = '^$VERSION';
+    }
+    fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+  }
+"
+
 npm install --omit=optional --package-lock-only
