@@ -128,35 +128,49 @@ impl<'src> PythonExtractor<'src> {
         class_methods: Option<&mut Vec<FunctionExtraction>>,
     ) {
         // The actual definition is the last named child
-        if let Some(definition) = node.child_by_field_name("definition") {
-            match definition.kind() {
-                "function_definition" | "async_function_definition" => {
-                    if let Some(fe) = self.extract_function(&definition) {
-                        // Use the decorator's start for byte/line range
-                        let fe = FunctionExtraction {
-                            byte_start: node.start_byte() as u32,
-                            start_line: node.start_position().row as u32 + 1,
-                            ..fe
-                        };
-                        if let Some(methods) = class_methods {
-                            methods.push(fe);
-                        } else {
-                            self.functions.push(fe);
-                        }
-                    }
-                }
-                "class_definition" => {
-                    if let Some(ce) = self.extract_class(&definition) {
-                        let ce = ClassExtraction {
-                            byte_start: node.start_byte() as u32,
-                            start_line: node.start_position().row as u32 + 1,
-                            ..ce
-                        };
-                        self.classes.push(ce);
-                    }
-                }
-                _ => {}
+        let Some(definition) = node.child_by_field_name("definition") else {
+            return;
+        };
+
+        match definition.kind() {
+            "function_definition" | "async_function_definition" => {
+                self.handle_decorated_function(node, &definition, class_methods);
             }
+            "class_definition" => {
+                self.handle_decorated_class(node, &definition);
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_decorated_function(
+        &mut self,
+        decorator_node: &Node,
+        definition: &Node,
+        class_methods: Option<&mut Vec<FunctionExtraction>>,
+    ) {
+        if let Some(fe) = self.extract_function(definition) {
+            let fe = FunctionExtraction {
+                byte_start: decorator_node.start_byte() as u32,
+                start_line: decorator_node.start_position().row as u32 + 1,
+                ..fe
+            };
+            if let Some(methods) = class_methods {
+                methods.push(fe);
+            } else {
+                self.functions.push(fe);
+            }
+        }
+    }
+
+    fn handle_decorated_class(&mut self, decorator_node: &Node, definition: &Node) {
+        if let Some(ce) = self.extract_class(definition) {
+            let ce = ClassExtraction {
+                byte_start: decorator_node.start_byte() as u32,
+                start_line: decorator_node.start_position().row as u32 + 1,
+                ..ce
+            };
+            self.classes.push(ce);
         }
     }
 
@@ -192,23 +206,7 @@ impl<'src> PythonExtractor<'src> {
         let name = node_text_owned(&name_node, self.source);
         let body_node = node.child_by_field_name("body")?;
 
-        let mut methods = Vec::new();
-        let mut cursor = body_node.walk();
-        for child in body_node.named_children(&mut cursor) {
-            match child.kind() {
-                "function_definition" | "async_function_definition" => {
-                    if let Some(mut fe) = self.extract_function(&child) {
-                        // Strip `self`/`cls` from param count for methods
-                        fe.param_count = strip_self_param(&child, self.source, fe.param_count);
-                        methods.push(fe);
-                    }
-                }
-                "decorated_definition" => {
-                    self.extract_decorated(&child, Some(&mut methods));
-                }
-                _ => {}
-            }
-        }
+        let methods = self.extract_class_methods(&body_node);
 
         Some(ClassExtraction {
             name,
@@ -220,51 +218,75 @@ impl<'src> PythonExtractor<'src> {
         })
     }
 
+    fn extract_class_methods(&mut self, body_node: &Node) -> Vec<FunctionExtraction> {
+        let mut methods = Vec::new();
+        let mut cursor = body_node.walk();
+        for child in body_node.named_children(&mut cursor) {
+            match child.kind() {
+                "function_definition" | "async_function_definition" => {
+                    if let Some(mut fe) = self.extract_function(&child) {
+                        fe.param_count = strip_self_param(&child, self.source, fe.param_count);
+                        methods.push(fe);
+                    }
+                }
+                "decorated_definition" => {
+                    self.extract_decorated(&child, Some(&mut methods));
+                }
+                _ => {}
+            }
+        }
+        methods
+    }
+
     fn extract_import(&mut self, node: &Node) {
         // `import foo`, `import foo as bar`, `import foo.bar`
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
             match child.kind() {
-                "dotted_name" => {
-                    let full_name = node_text_owned(&child, self.source);
-                    let binding = full_name
-                        .split('.')
-                        .next()
-                        .unwrap_or(&full_name)
-                        .to_string();
-                    self.imported_names.insert(binding.clone());
-                    self.imports.push(ImportRecord {
-                        source: full_name,
-                        is_external: true,
-                        names: vec![binding],
-                    });
-                }
-                "aliased_import" => {
-                    let name_node = child.child_by_field_name("name");
-                    let alias_node = child.child_by_field_name("alias");
-                    let source_name = name_node
-                        .map(|n| node_text_owned(&n, self.source))
-                        .unwrap_or_default();
-                    let binding = alias_node.map_or_else(
-                        || {
-                            source_name
-                                .split('.')
-                                .next()
-                                .unwrap_or(&source_name)
-                                .to_string()
-                        },
-                        |n| node_text_owned(&n, self.source),
-                    );
-                    self.imported_names.insert(binding.clone());
-                    self.imports.push(ImportRecord {
-                        source: source_name,
-                        is_external: true,
-                        names: vec![binding],
-                    });
-                }
+                "dotted_name" => self.handle_dotted_import(&child),
+                "aliased_import" => self.handle_aliased_import(&child),
                 _ => {}
             }
         }
+    }
+
+    fn handle_dotted_import(&mut self, node: &Node) {
+        let full_name = node_text_owned(node, self.source);
+        let binding = full_name
+            .split('.')
+            .next()
+            .unwrap_or(&full_name)
+            .to_string();
+        self.imported_names.insert(binding.clone());
+        self.imports.push(ImportRecord {
+            source: full_name,
+            is_external: true,
+            names: vec![binding],
+        });
+    }
+
+    fn handle_aliased_import(&mut self, child: &Node) {
+        let name_node = child.child_by_field_name("name");
+        let alias_node = child.child_by_field_name("alias");
+        let source_name = name_node
+            .map(|n| node_text_owned(&n, self.source))
+            .unwrap_or_default();
+        let binding = alias_node.map_or_else(
+            || {
+                source_name
+                    .split('.')
+                    .next()
+                    .unwrap_or(&source_name)
+                    .to_string()
+            },
+            |n| node_text_owned(&n, self.source),
+        );
+        self.imported_names.insert(binding.clone());
+        self.imports.push(ImportRecord {
+            source: source_name,
+            is_external: true,
+            names: vec![binding],
+        });
     }
 
     fn extract_import_from(&mut self, node: &Node) {
@@ -412,15 +434,7 @@ impl<'src> PythonBodyEventEmitter<'src> {
             "function_definition" | "async_function_definition" => {
                 self.visit_nested_function(node);
             }
-            "decorated_definition" => {
-                if let Some(def) = node.child_by_field_name("definition") {
-                    if def.kind() == "function_definition"
-                        || def.kind() == "async_function_definition"
-                    {
-                        self.visit_nested_function(&def);
-                    }
-                }
-            }
+            "decorated_definition" => self.handle_decorated_statement(node),
             "assert_statement" => self.visit_assert(node),
             "delete_statement" => {
                 self.emit_operator("del");
@@ -429,8 +443,18 @@ impl<'src> PythonBodyEventEmitter<'src> {
             "global_statement" | "nonlocal_statement" | "pass_statement" | "break_statement"
             | "continue_statement" | "comment" | "class_definition" => {}
             _ => {
-                // Fallback: visit any expression children
                 self.visit_children_exprs(node);
+            }
+        }
+    }
+
+    fn handle_decorated_statement(&mut self, node: &Node) {
+        if let Some(def) = node.child_by_field_name("definition") {
+            match def.kind() {
+                "function_definition" | "async_function_definition" => {
+                    self.visit_nested_function(&def);
+                }
+                _ => {}
             }
         }
     }
@@ -459,7 +483,13 @@ impl<'src> PythonBodyEventEmitter<'src> {
             self.visit_block(&body);
         }
 
-        // Process elif/else clauses within the same nesting level
+        self.visit_if_clauses(node);
+
+        self.nesting_depth -= 1;
+        self.events.push(QualitasEvent::NestingExit);
+    }
+
+    fn visit_if_clauses(&mut self, node: &Node) {
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
             match child.kind() {
@@ -472,9 +502,6 @@ impl<'src> PythonBodyEventEmitter<'src> {
                 _ => {}
             }
         }
-
-        self.nesting_depth -= 1;
-        self.events.push(QualitasEvent::NestingExit);
     }
 
     fn visit_elif(&mut self, node: &Node) {
@@ -743,51 +770,57 @@ impl<'src> PythonBodyEventEmitter<'src> {
             | "set_comprehension"
             | "dictionary_comprehension"
             | "generator_expression" => self.visit_comprehension(node),
-            "parenthesized_expression" => {
-                if let Some(inner) = node.named_child(0) {
-                    self.visit_expr(&inner);
-                }
-            }
+            "parenthesized_expression" => self.visit_parenthesized_expr(node),
             "tuple" | "list" | "set" => self.visit_collection(node),
             "dictionary" => self.visit_dict(node),
             "subscript" => self.visit_subscript(node),
             "slice" => self.visit_slice(node),
             "await" => self.visit_await(node),
-            "yield" => {
-                self.events.push(QualitasEvent::ReturnStatement);
-                if let Some(val) = node.named_child(0) {
-                    self.visit_expr(&val);
-                }
-            }
+            "yield" => self.visit_yield_expr(node),
             "assignment" => self.visit_assignment(node),
             "augmented_assignment" => self.visit_augmented_assignment(node),
             "named_expression" => self.visit_walrus(node),
-            "starred_expression" => {
-                self.emit_operator("*");
-                if let Some(val) = node.named_child(0) {
-                    self.visit_expr(&val);
-                }
+            "starred_expression" => self.visit_starred_expr(node),
+            "type" => {}
+            "keyword_argument" | "pair" => self.visit_keyword_or_pair(node),
+            "if_statement" | "for_statement" | "async_for_statement" | "while_statement" => {
+                self.visit_statement(node);
             }
-            "type" => {
-                // Type annotation — skip
-            }
-            "keyword_argument" | "pair" => {
-                // Visit value part
-                if let Some(val) = node.child_by_field_name("value") {
-                    self.visit_expr(&val);
-                }
-            }
-            "if_statement" => self.visit_if(node),
-            "for_statement" | "async_for_statement" => self.visit_for(node),
-            "while_statement" => self.visit_while(node),
             "expression_list" => self.visit_collection(node),
-            _ => {
-                // Recurse into any named children
-                let mut cursor = node.walk();
-                for child in node.named_children(&mut cursor) {
-                    self.visit_expr(&child);
-                }
-            }
+            _ => self.visit_expr_children(node),
+        }
+    }
+
+    fn visit_parenthesized_expr(&mut self, node: &Node) {
+        if let Some(inner) = node.named_child(0) {
+            self.visit_expr(&inner);
+        }
+    }
+
+    fn visit_yield_expr(&mut self, node: &Node) {
+        self.events.push(QualitasEvent::ReturnStatement);
+        if let Some(val) = node.named_child(0) {
+            self.visit_expr(&val);
+        }
+    }
+
+    fn visit_starred_expr(&mut self, node: &Node) {
+        self.emit_operator("*");
+        if let Some(val) = node.named_child(0) {
+            self.visit_expr(&val);
+        }
+    }
+
+    fn visit_keyword_or_pair(&mut self, node: &Node) {
+        if let Some(val) = node.child_by_field_name("value") {
+            self.visit_expr(&val);
+        }
+    }
+
+    fn visit_expr_children(&mut self, node: &Node) {
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            self.visit_expr(&child);
         }
     }
 
@@ -1189,8 +1222,12 @@ impl<'src> PythonBodyEventEmitter<'src> {
 
     fn has_child_kind(node: &Node, kind: &str) -> bool {
         let mut cursor = node.walk();
-        let result = node.named_children(&mut cursor).any(|c| c.kind() == kind);
-        result
+        for child in node.named_children(&mut cursor) {
+            if child.kind() == kind {
+                return true;
+            }
+        }
+        false
     }
 
     fn get_operator_text(&self, node: &Node) -> String {
