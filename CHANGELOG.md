@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0
+
+### Minor Changes
+
+- [#21](https://github.com/An631/qualitas/pull/21) [`68d6a3a`](https://github.com/An631/qualitas/commit/68d6a3aec2eb108efe845ac38596dbfa9abf371f) Thanks [@An631](https://github.com/An631)! - Adding support for python files
+
 ## 0.1.9
 
 ### Patch Changes
