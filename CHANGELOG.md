@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+### Patch Changes
+
+- [#23](https://github.com/An631/qualitas/pull/23) [`7ad10cc`](https://github.com/An631/qualitas/commit/7ad10ccea6844c960aec7ffe2e5941cda9e0c9b5) Thanks [@An631](https://github.com/An631)! - Refactor Python adapter to resolve quality flags and update documentation for Python support
+
 ## 0.2.0
 
 ### Minor Changes
