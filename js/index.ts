@@ -58,7 +58,7 @@ function getBinding() {
 
 // ─── Default options ──────────────────────────────────────────────────────────
 
-const DEFAULT_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
+const DEFAULT_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.pyi'];
 const DEFAULT_EXCLUDE = ['node_modules', 'dist', 'build', '.git', 'coverage'];
 const TEST_PATTERNS = ['.test.', '.spec.', '.playwright-test.'];
 
@@ -74,7 +74,7 @@ export function quickScore(source: string, fileName = 'anonymous.ts'): QuickScor
 }
 
 /**
- * Analyze a TypeScript/JavaScript source string directly.
+ * Analyze a TypeScript/JavaScript/Python source string directly.
  * Useful for agent/automation use cases without file I/O.
  */
 export function analyzeSource(
@@ -108,7 +108,7 @@ export async function analyzeFile(
 }
 
 /**
- * Analyze all TypeScript/JavaScript files in a directory recursively.
+ * Analyze all supported source files in a directory recursively.
  */
 export async function analyzeProject(
   dirPath: string,
@@ -135,9 +135,12 @@ async function collectProjectFiles(
 }
 
 function resolveTestPatterns(config: import('./types.js').QualitasConfig): string[] {
+  const patterns = [...TEST_PATTERNS];
   const tsConfig = config.languages?.typescript;
   if (tsConfig?.testPatterns) return tsConfig.testPatterns;
-  return TEST_PATTERNS;
+  const pyConfig = config.languages?.python;
+  if (pyConfig?.testPatterns) patterns.push(...pyConfig.testPatterns);
+  return patterns;
 }
 
 async function analyzeFiles(
@@ -168,6 +171,9 @@ function languageForExtension(filePath: string): string | null {
       return 'typescript';
     case 'rs':
       return 'rust';
+    case 'py':
+    case 'pyi':
+      return 'python';
     default:
       return null;
   }

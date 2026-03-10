@@ -6,7 +6,7 @@
 
 ## Project Overview
 
-`qualitas` is a standalone npm package at `~/qualitas/` (NOT inside the office-bohemia monorepo). It measures TypeScript/JavaScript code quality using a five-pillar composite Quality Score (0–100, higher = better). The core is written in Rust using `oxc_parser` and distributed via napi-rs as a native Node.js addon.
+`qualitas` is a standalone npm package at `~/qualitas/` (NOT inside the office-bohemia monorepo). It measures code quality for TypeScript/JavaScript, Rust, and Python using a five-pillar composite Quality Score (0–100, higher = better). The core is written in Rust using `oxc_parser` (TS/JS), `syn` (Rust), and `tree-sitter-python` (Python), distributed via napi-rs as a native Node.js addon.
 
 **Current state:** Fully functional. All 17 Rust unit tests pass. All 35 JS integration tests pass. CLI works end-to-end with all options implemented. Published to `https://github.com/An631/qualitas`.
 

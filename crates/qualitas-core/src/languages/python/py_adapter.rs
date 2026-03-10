@@ -274,37 +274,11 @@ impl<'src> PythonExtractor<'src> {
             .map(|n| node_text_owned(&n, self.source))
             .unwrap_or_default();
         let is_external = !module.starts_with('.');
+        let module_end = node
+            .child_by_field_name("module_name")
+            .map_or(0, |n| n.end_byte());
 
-        let mut names = Vec::new();
-        let mut cursor = node.walk();
-        for child in node.named_children(&mut cursor) {
-            match child.kind() {
-                "dotted_name" | "identifier" => {
-                    // Skip the module name itself (handled above)
-                    if child.start_byte()
-                        > node
-                            .child_by_field_name("module_name")
-                            .map_or(0, |n| n.end_byte())
-                    {
-                        let name = node_text_owned(&child, self.source);
-                        names.push(name);
-                    }
-                }
-                "aliased_import" => {
-                    let alias = child.child_by_field_name("alias");
-                    let name_node = child.child_by_field_name("name");
-                    let binding = alias
-                        .or(name_node)
-                        .map(|n| node_text_owned(&n, self.source))
-                        .unwrap_or_default();
-                    names.push(binding);
-                }
-                "wildcard_import" => {
-                    names.push("*".to_string());
-                }
-                _ => {}
-            }
-        }
+        let names = self.collect_import_from_names(node, module_end);
 
         for n in &names {
             self.imported_names.insert(n.clone());
@@ -315,6 +289,29 @@ impl<'src> PythonExtractor<'src> {
             is_external,
             names,
         });
+    }
+
+    fn collect_import_from_names(&self, node: &Node, module_end: usize) -> Vec<String> {
+        let mut names = Vec::new();
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            match child.kind() {
+                "dotted_name" | "identifier" if child.start_byte() > module_end => {
+                    names.push(node_text_owned(&child, self.source));
+                }
+                "aliased_import" => {
+                    let binding = child
+                        .child_by_field_name("alias")
+                        .or_else(|| child.child_by_field_name("name"))
+                        .map(|n| node_text_owned(&n, self.source))
+                        .unwrap_or_default();
+                    names.push(binding);
+                }
+                "wildcard_import" => names.push("*".to_string()),
+                _ => {}
+            }
+        }
+        names
     }
 }
 
@@ -557,23 +554,7 @@ impl<'src> PythonBodyEventEmitter<'src> {
                 else_is_if: false,
             }));
 
-        // Visit with items for expressions
-        let mut cursor = node.walk();
-        for child in node.named_children(&mut cursor) {
-            if child.kind() == "with_clause" {
-                let mut clause_cursor = child.walk();
-                for item in child.named_children(&mut clause_cursor) {
-                    if item.kind() == "with_item" {
-                        if let Some(value) = item.child_by_field_name("value") {
-                            self.visit_expr(&value);
-                        }
-                        if let Some(alias) = item.child_by_field_name("alias") {
-                            self.emit_pattern_idents(&alias);
-                        }
-                    }
-                }
-            }
-        }
+        self.visit_with_clauses(node);
 
         self.emit_nesting_block(|s| {
             if let Some(body) = node.child_by_field_name("body") {
@@ -582,40 +563,61 @@ impl<'src> PythonBodyEventEmitter<'src> {
         });
     }
 
+    fn visit_with_clauses(&mut self, node: &Node) {
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            if child.kind() == "with_clause" {
+                self.visit_with_clause_items(&child);
+            }
+        }
+    }
+
+    fn visit_with_clause_items(&mut self, clause: &Node) {
+        let mut cursor = clause.walk();
+        for item in clause.named_children(&mut cursor) {
+            if item.kind() == "with_item" {
+                if let Some(value) = item.child_by_field_name("value") {
+                    self.visit_expr(&value);
+                }
+                if let Some(alias) = item.child_by_field_name("alias") {
+                    self.emit_pattern_idents(&alias);
+                }
+            }
+        }
+    }
+
     fn visit_try(&mut self, node: &Node) {
-        // Visit the try body
         if let Some(body) = node.child_by_field_name("body") {
             self.visit_block(&body);
         }
 
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
-            match child.kind() {
-                "except_clause" | "except_group_clause" => {
-                    self.events
-                        .push(QualitasEvent::ControlFlow(ControlFlowEvent {
-                            kind: ControlFlowKind::Catch,
-                            has_else: false,
-                            else_is_if: false,
-                        }));
-                    self.emit_nesting_block(|s| {
-                        if let Some(body) = child.child_by_field_name("body") {
-                            s.visit_block(&body);
-                        }
-                    });
-                }
-                "else_clause" => {
+            self.visit_try_clause(&child);
+        }
+    }
+
+    fn visit_try_clause(&mut self, child: &Node) {
+        match child.kind() {
+            "except_clause" | "except_group_clause" => {
+                self.events
+                    .push(QualitasEvent::ControlFlow(ControlFlowEvent {
+                        kind: ControlFlowKind::Catch,
+                        has_else: false,
+                        else_is_if: false,
+                    }));
+                self.emit_nesting_block(|s| {
                     if let Some(body) = child.child_by_field_name("body") {
-                        self.visit_block(&body);
+                        s.visit_block(&body);
                     }
-                }
-                "finally_clause" => {
-                    if let Some(body) = child.child_by_field_name("body") {
-                        self.visit_block(&body);
-                    }
-                }
-                _ => {}
+                });
             }
+            "else_clause" | "finally_clause" => {
+                if let Some(body) = child.child_by_field_name("body") {
+                    self.visit_block(&body);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -834,39 +836,44 @@ impl<'src> PythonBodyEventEmitter<'src> {
     }
 
     fn visit_comparison(&mut self, node: &Node) {
-        // Comparison operators: a < b, a == b, a is b, a in b, a not in b, a is not b
         let mut cursor = node.walk();
         let children: Vec<Node> = node.children(&mut cursor).collect();
-        // First child is the left operand
+
         if let Some(first) = children.first() {
             if first.is_named() {
                 self.visit_expr(first);
             }
         }
-        // Remaining children alternate between operators and operands
-        let mut i = 1;
+
+        self.visit_comparison_chain(&children[1..]);
+    }
+
+    fn visit_comparison_chain(&mut self, children: &[Node]) {
+        let mut i = 0;
         while i < children.len() {
             let child = &children[i];
             if child.is_named() {
                 self.visit_expr(child);
+                i += 1;
             } else {
-                // operator token
-                let op_text = node_text(child, self.source);
-                // Handle multi-token operators like "not in", "is not"
-                if op_text == "not" || op_text == "is" {
-                    if let Some(next) = children.get(i + 1) {
-                        if !next.is_named() {
-                            let combined = format!("{} {}", op_text, node_text(next, self.source));
-                            self.emit_operator(&combined);
-                            i += 2;
-                            continue;
-                        }
-                    }
-                }
-                self.emit_operator(op_text);
+                i += self.emit_comparison_op(children, i);
             }
-            i += 1;
         }
+    }
+
+    /// Emit a comparison operator, handling multi-token ops like "not in" and "is not".
+    /// Returns the number of tokens consumed.
+    fn emit_comparison_op(&mut self, children: &[Node], i: usize) -> usize {
+        let op_text = node_text(&children[i], self.source);
+        if (op_text == "not" || op_text == "is") && i + 1 < children.len() {
+            let next = &children[i + 1];
+            if !next.is_named() {
+                self.emit_operator(&format!("{} {}", op_text, node_text(next, self.source)));
+                return 2;
+            }
+        }
+        self.emit_operator(op_text);
+        1
     }
 
     fn visit_conditional_expr(&mut self, node: &Node) {
@@ -884,60 +891,61 @@ impl<'src> PythonBodyEventEmitter<'src> {
     fn visit_call(&mut self, node: &Node) {
         let func_node = node.child_by_field_name("function");
 
-        // Check for recursive call
         if let Some(ref f) = func_node {
-            if f.kind() == "identifier" {
-                let name = node_text(f, self.source);
-                if name == self.fn_name {
-                    self.events.push(QualitasEvent::RecursiveCall);
-                }
-            }
+            self.detect_call_patterns(f);
         }
 
-        // Check for API calls (object.method())
-        if let Some(ref f) = func_node {
-            if f.kind() == "attribute" {
-                if let Some(obj) = f.child_by_field_name("object") {
-                    if let Some(attr) = f.child_by_field_name("attribute") {
-                        let obj_name = node_text(&obj, self.source);
-                        let method_name = node_text(&attr, self.source);
-                        if obj.kind() == "identifier" && self.imported_names.contains(obj_name) {
-                            self.events.push(QualitasEvent::ApiCall(ApiCallEvent {
-                                object: obj_name.to_string(),
-                                method: method_name.to_string(),
-                            }));
-                        }
-                    }
-                }
-            }
-        }
-
-        // Check for async patterns
-        if let Some(ref f) = func_node {
-            let call_name = self.get_call_name(f);
-            if matches!(
-                call_name.as_str(),
-                "asyncio.create_task"
-                    | "asyncio.ensure_future"
-                    | "asyncio.gather"
-                    | "loop.create_task"
-            ) {
-                self.events
-                    .push(QualitasEvent::AsyncComplexity(AsyncEvent::Spawn));
-            }
-        }
-
-        // Visit the function expression
         if let Some(f) = func_node {
             self.visit_expr(&f);
         }
 
-        // Visit arguments
         if let Some(args) = node.child_by_field_name("arguments") {
             let mut cursor = args.walk();
             for arg in args.named_children(&mut cursor) {
                 self.visit_expr(&arg);
             }
+        }
+    }
+
+    fn detect_call_patterns(&mut self, func: &Node) {
+        self.detect_recursive_call(func);
+        self.detect_api_call(func);
+        self.detect_async_spawn(func);
+    }
+
+    fn detect_recursive_call(&mut self, func: &Node) {
+        if func.kind() == "identifier" && node_text(func, self.source) == self.fn_name {
+            self.events.push(QualitasEvent::RecursiveCall);
+        }
+    }
+
+    fn detect_api_call(&mut self, func: &Node) {
+        if func.kind() != "attribute" {
+            return;
+        }
+        let Some(obj) = func.child_by_field_name("object") else {
+            return;
+        };
+        let Some(attr) = func.child_by_field_name("attribute") else {
+            return;
+        };
+        let obj_name = node_text(&obj, self.source);
+        if obj.kind() == "identifier" && self.imported_names.contains(obj_name) {
+            self.events.push(QualitasEvent::ApiCall(ApiCallEvent {
+                object: obj_name.to_string(),
+                method: node_text(&attr, self.source).to_string(),
+            }));
+        }
+    }
+
+    fn detect_async_spawn(&mut self, func: &Node) {
+        let call_name = self.get_call_name(func);
+        if matches!(
+            call_name.as_str(),
+            "asyncio.create_task" | "asyncio.ensure_future" | "asyncio.gather" | "loop.create_task"
+        ) {
+            self.events
+                .push(QualitasEvent::AsyncComplexity(AsyncEvent::Spawn));
         }
     }
 
@@ -1005,41 +1013,41 @@ impl<'src> PythonBodyEventEmitter<'src> {
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
             match child.kind() {
-                "for_in_clause" => {
-                    self.events
-                        .push(QualitasEvent::ControlFlow(ControlFlowEvent {
-                            kind: ControlFlowKind::ForOf,
-                            has_else: false,
-                            else_is_if: false,
-                        }));
-                    // Visit iterable
-                    let mut inner_cursor = child.walk();
-                    for inner in child.named_children(&mut inner_cursor) {
-                        if inner.kind() != "identifier"
-                            && inner.kind() != "pattern_list"
-                            && inner.kind() != "tuple_pattern"
-                        {
-                            self.visit_expr(&inner);
-                        }
-                    }
-                }
-                "if_clause" => {
-                    self.events
-                        .push(QualitasEvent::ControlFlow(ControlFlowEvent {
-                            kind: ControlFlowKind::If,
-                            has_else: false,
-                            else_is_if: false,
-                        }));
-                    let mut inner_cursor = child.walk();
-                    for inner in child.named_children(&mut inner_cursor) {
-                        self.visit_expr(&inner);
-                    }
-                }
-                _ => {
-                    // The expression being collected
-                    self.visit_expr(&child);
-                }
+                "for_in_clause" => self.visit_comprehension_for(&child),
+                "if_clause" => self.visit_comprehension_if(&child),
+                _ => self.visit_expr(&child),
             }
+        }
+    }
+
+    fn visit_comprehension_for(&mut self, clause: &Node) {
+        self.events
+            .push(QualitasEvent::ControlFlow(ControlFlowEvent {
+                kind: ControlFlowKind::ForOf,
+                has_else: false,
+                else_is_if: false,
+            }));
+        let mut cursor = clause.walk();
+        for inner in clause.named_children(&mut cursor) {
+            if !matches!(
+                inner.kind(),
+                "identifier" | "pattern_list" | "tuple_pattern"
+            ) {
+                self.visit_expr(&inner);
+            }
+        }
+    }
+
+    fn visit_comprehension_if(&mut self, clause: &Node) {
+        self.events
+            .push(QualitasEvent::ControlFlow(ControlFlowEvent {
+                kind: ControlFlowKind::If,
+                has_else: false,
+                else_is_if: false,
+            }));
+        let mut cursor = clause.walk();
+        for inner in clause.named_children(&mut cursor) {
+            self.visit_expr(&inner);
         }
     }
 
