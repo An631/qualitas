@@ -410,6 +410,7 @@ fn language_for_extension(file_path: &str) -> Option<String> {
     match ext {
         "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" => Some("typescript".to_string()),
         "rs" => Some("rust".to_string()),
+        "py" | "pyi" => Some("python".to_string()),
         _ => None,
     }
 }

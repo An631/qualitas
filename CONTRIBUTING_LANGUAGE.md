@@ -48,12 +48,14 @@ impl LanguageAdapter for PythonAdapter {
 ### 2. Register in `src/languages/mod.rs`
 
 ```rust
-pub mod python;  // Add module declaration
+pub mod <lang>;  // Add module declaration
 
 fn all_adapters() -> Vec<Box<dyn LanguageAdapter>> {
     vec![
         Box::new(typescript::TypeScriptAdapter),
-        Box::new(python::PythonAdapter),  // Add this line
+        Box::new(rust::RustAdapter),
+        Box::new(python::PythonAdapter),
+        Box::new(<lang>::<Lang>Adapter),  // Add this line
     ]
 }
 ```
@@ -62,11 +64,8 @@ fn all_adapters() -> Vec<Box<dyn LanguageAdapter>> {
 
 ```toml
 [dependencies]
-tree-sitter = { version = "0.24", optional = true }
-tree-sitter-python = { version = "0.23", optional = true }
-
-[features]
-lang-python = ["dep:tree-sitter", "dep:tree-sitter-python"]
+tree-sitter = "0.24"              # already present (used by Python adapter)
+tree-sitter-<lang> = "<version>"  # add your language's grammar
 ```
 
 ### 4. Write tests

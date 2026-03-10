@@ -68,5 +68,15 @@ module.exports = {
         'tests\\', // Files under tests\ directories (Windows)
       ],
     },
+    python: {
+      testPatterns: [
+        'test_', // test_foo.py (pytest convention)
+        '_test.py', // foo_test.py
+        '_tests.py', // foo_tests.py
+        'tests/', // Files under tests/ directories (Unix)
+        'tests\\', // Files under tests\ directories (Windows)
+        'conftest.py', // pytest configuration files
+      ],
+    },
   },
 };

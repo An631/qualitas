@@ -518,7 +518,7 @@ qualitas/
 │   │   ├── types.rs            All Rust structs (serde → JSON → TypeScript)
 │   │   ├── constants.rs        Thresholds, weights, saturation K, grade bands
 │   │   ├── ir/                 Intermediate representation (event-based)
-│   │   ├── languages/          Language adapters (TypeScript, Rust)
+│   │   ├── languages/          Language adapters (TypeScript, Rust, Python)
 │   │   ├── metrics/            5 metric collectors (CFC, DCI, IRC, DC, SM)
 │   │   ├── scorer/             Composite score + flag generation
 │   │   └── parser/             Shared parsing utilities (LOC counting, etc.)
@@ -548,6 +548,7 @@ qualitas/
 
 - **TypeScript / JavaScript** — via [oxc_parser](https://oxc.rs/) (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`)
 - **Rust** — via [syn](https://docs.rs/syn) (`.rs`)
+- **Python** — via [tree-sitter-python](https://crates.io/crates/tree-sitter-python) (`.py`, `.pyi`)
 
 Adding a new language requires only one adapter file. See `CONTRIBUTING_LANGUAGE.md`.
 
@@ -641,7 +642,7 @@ npm run test:ts               # 52 JS integration tests
 
 94 tests across all modules. Cover:
 
-- Per-language conformance tests (TypeScript and Rust adapters)
+- Per-language conformance tests (TypeScript, Rust, and Python adapters)
 - CFC, DCI, IRC, DC, SM metric collectors via event-based IR
 - Composite scorer saturation invariants (sublinearity, score bounds)
 - Flag generation with default and custom thresholds
@@ -653,6 +654,7 @@ npm run test:ts               # 52 JS integration tests
 
 - Scoring, config loading, reporter output, project analysis
 - TypeScript adapter: function collection patterns, class methods, arrow functions
+- Python adapter: function/class extraction, comprehensions, decorators, async/await
 - Flag verification, scope filtering, scoring invariants
 
 ---

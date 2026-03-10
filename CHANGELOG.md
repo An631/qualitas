@@ -72,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Five-pillar quality scoring: CFC, DCI, IRC, DC, SM with exponential saturation model
 - TypeScript/JavaScript language support via oxc_parser
 - Rust language support via syn
+- Python language support via tree-sitter-python (`.py`, `.pyi`)
 - Event-based IR architecture for language-agnostic metric collection
 - Standalone Rust CLI binary (`qualitas`) with 7 output formats (text, compact, detail, flagged, json, markdown, summary)
 - Node.js CLI via `npx qualitas`
