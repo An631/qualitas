@@ -3,17 +3,41 @@ use std::process::Command;
 
 use qualitas_core::types::{AnalysisOptions, QualitasConfig};
 
-/// Walk up directories from `start_dir` looking for `qualitas.config.js`.
-/// When found, evaluate it with Node and parse the JSON output.
-/// Returns `QualitasConfig::default()` if the file is not found, Node is
-/// unavailable, or the output cannot be parsed.
-pub fn load_config(start_dir: &str) -> QualitasConfig {
-    find_config_file(start_dir)
+/// Load configuration from a qualitas.config.js file.
+///
+/// Search order:
+/// 1. Explicit `--config` path (if provided)
+/// 2. Walk up from `start_dir` looking for qualitas.config.js
+/// 3. Look next to the running executable
+///
+/// Returns `QualitasConfig::default()` if no config file is found.
+pub fn load_config(start_dir: &str, explicit_path: Option<&str>) -> QualitasConfig {
+    find_config(start_dir, explicit_path)
         .map(|path| evaluate_config(&path))
         .unwrap_or_default()
 }
 
-fn find_config_file(start_dir: &str) -> Option<std::path::PathBuf> {
+fn find_config(start_dir: &str, explicit_path: Option<&str>) -> Option<std::path::PathBuf> {
+    // 1. Explicit --config flag takes priority
+    if let Some(path) = explicit_path {
+        let p = Path::new(path);
+        if p.is_file() {
+            return Some(p.to_path_buf());
+        }
+        eprintln!("qualitas: config file not found: {path}");
+        return None;
+    }
+
+    // 2. Walk up from target directory
+    if let Some(found) = walk_up_for_config(start_dir) {
+        return Some(found);
+    }
+
+    // 3. Look next to the executable
+    find_config_next_to_exe()
+}
+
+fn walk_up_for_config(start_dir: &str) -> Option<std::path::PathBuf> {
     let start = Path::new(start_dir);
     let mut dir = if start.is_file() {
         start.parent()?
@@ -27,6 +51,17 @@ fn find_config_file(start_dir: &str) -> Option<std::path::PathBuf> {
             return Some(candidate);
         }
         dir = dir.parent()?;
+    }
+}
+
+fn find_config_next_to_exe() -> Option<std::path::PathBuf> {
+    let exe_path = std::env::current_exe().ok()?;
+    let exe_dir = exe_path.parent()?;
+    let candidate = exe_dir.join("qualitas.config.js");
+    if candidate.is_file() {
+        Some(candidate)
+    } else {
+        None
     }
 }
 
@@ -63,7 +98,6 @@ fn evaluate_config(config_path: &Path) -> QualitasConfig {
 
 /// Merge CLI arguments with the loaded config file, using CLI > config > defaults.
 /// Returns `(AnalysisOptions, format_string)`.
-/// `TextReporterOptions` is now derived from the format string in main, not here.
 pub fn merge_config(cli: &super::Cli, config: &QualitasConfig) -> (AnalysisOptions, String) {
     let format = resolve_string(cli.format.as_ref(), config.format.as_ref(), "text");
     let options = build_analysis_options(cli, config);

@@ -62,6 +62,10 @@ struct Cli {
     /// Output file path for report formats (json, markdown). Defaults to qualitas-report.<ext>
     #[arg(short = 'o', long)]
     output: Option<String>,
+
+    /// Path to qualitas.config.js. Overrides automatic config file search.
+    #[arg(short = 'c', long)]
+    config: Option<String>,
 }
 
 // ─── Default file-collection settings ─────────────────────────────────────────
@@ -226,7 +230,7 @@ fn check_project_threshold(
 
 fn main() {
     let cli = Cli::parse();
-    let config = config::load_config(&cli.path);
+    let config = config::load_config(&cli.path, cli.config.as_deref());
     validate_path(&cli.path);
 
     match run(&cli, &config) {
