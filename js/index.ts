@@ -59,7 +59,8 @@ function getBinding() {
 // ─── Default options ──────────────────────────────────────────────────────────
 
 const DEFAULT_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.pyi'];
-const DEFAULT_EXCLUDE = ['node_modules', 'dist', 'build', '.git', 'coverage'];
+// Only .git is universally excluded — all other excludes come from qualitas.config.js.
+const DEFAULT_EXCLUDE = ['.git'];
 const TEST_PATTERNS = ['.test.', '.spec.', '.playwright-test.'];
 
 // ─── Public API ───────────────────────────────────────────────────────────────

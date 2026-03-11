@@ -8,7 +8,7 @@ module.exports = {
   threshold: 80,
 
   // Directories and files to exclude from analysis.
-  // Replaces built-in defaults (node_modules, dist, build, .git, coverage, target).
+  // Only .git is excluded by default — configure all other excludes here.
   exclude: [
     'node_modules',
     'dist',
@@ -16,6 +16,9 @@ module.exports = {
     '.git',
     'coverage',
     'target',
+    'lib',
+    'out',
+    'vendor',
     'qualitas_napi.js', // Auto-generated NAPI binding loader
     'eslint.config.js', // Config file, not application code
     'qualitas.config.js', // Config file, not application code
@@ -39,9 +42,8 @@ module.exports = {
   // flags: {},
 
   /**
-   * Directories to exclude from analysis. Replaces built-in defaults when set.
-   * Built-in defaults (used when omitted): node_modules, dist, build, .git, coverage, target
-   * exclude: ['node_modules', 'dist', 'build', '.git', 'coverage', 'target', 'vendor/'],
+   * Only .git is excluded by default. Set the `exclude` field above to configure
+   * which directories and files to skip during analysis.
    *
    * Per-language configuration. Keys are lowercase language names.
    * When a language's testPatterns is set, it replaces that language's built-in defaults entirely.
