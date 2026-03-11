@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2
+
+### Patch Changes
+
+- [`43649f4`](https://github.com/An631/qualitas/commit/43649f4e686164052e3abd53910b67112dd9439d) - Adding optionalDependencies version syncing logic
+
 ## 0.2.1
 
 ### Patch Changes
