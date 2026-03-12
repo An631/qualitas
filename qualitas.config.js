@@ -21,7 +21,6 @@ module.exports = {
     'vendor',
     'qualitas_napi.js', // Auto-generated NAPI binding loader
     'eslint.config.js', // Config file, not application code
-    'qualitas.config.js', // Config file, not application code
   ],
 
   // Weight profile: 'default' | 'cc-focused' | 'data-focused' | 'strict'

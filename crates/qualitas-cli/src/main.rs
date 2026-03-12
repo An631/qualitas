@@ -70,8 +70,8 @@ struct Cli {
 
 // ─── Default file-collection settings ─────────────────────────────────────────
 
-/// Only .git is universally excluded — all other excludes come from qualitas.config.js.
-const DEFAULT_EXCLUDE: &[&str] = &[".git"];
+/// Universally safe excludes — these are never source code worth analyzing.
+const DEFAULT_EXCLUDE: &[&str] = &[".git", "qualitas.config.js"];
 
 /// Skip files larger than 1 MB — these are almost certainly bundled/generated.
 const MAX_FILE_SIZE: u64 = 1_024 * 1_024;
