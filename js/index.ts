@@ -79,27 +79,37 @@ export function quickScore(source: string, fileName = 'anonymous.ts'): QuickScor
 /**
  * Analyze a TypeScript/JavaScript/Python source string directly.
  * Useful for agent/automation use cases without file I/O.
+ *
+ * When `config` is provided, per-language flag overrides from the config
+ * are automatically resolved based on the file extension — the same behavior
+ * as `analyzeProject()`. Without `config`, only `options.flagOverrides` is used.
  */
 export function analyzeSource(
   source: string,
   fileName = 'anonymous.ts',
   options: AnalysisOptions = {},
+  config?: QualitasConfig,
 ): FileQualityReport {
+  const resolvedOpts = config ? applyLanguageFlags(fileName, options, config) : options;
   const binding = getBinding();
-  const optsJson = JSON.stringify(options);
+  const optsJson = JSON.stringify(resolvedOpts);
   const json = binding.analyzeSource(source, fileName, optsJson);
   return JSON.parse(json) as FileQualityReport;
 }
 
 /**
  * Analyze a single file by path.
+ *
+ * When `config` is provided, per-language flag overrides are resolved
+ * automatically based on the file extension.
  */
 export async function analyzeFile(
   filePath: string,
   options: AnalysisOptions = {},
+  config?: QualitasConfig,
 ): Promise<FileQualityReport> {
   const source = await readFile(filePath, 'utf8');
-  const report = analyzeSource(source, filePath, options);
+  const report = analyzeSource(source, filePath, options, config);
   // Backfill file path into location objects
   if (report.fileScope) report.fileScope.location.file = filePath;
   for (const fn_ of report.functions) fn_.location.file = filePath;
@@ -151,13 +161,7 @@ async function analyzeFiles(
   mergedOpts: AnalysisOptions,
   config: QualitasConfig,
 ): Promise<FileQualityReport[]> {
-  return Promise.all(
-    files.map((f) => {
-      const flagOverrides = resolveFlagOverrides(f, config);
-      const opts = flagOverrides ? { ...mergedOpts, flagOverrides } : mergedOpts;
-      return analyzeFile(f, opts);
-    }),
-  );
+  return Promise.all(files.map((f) => analyzeFile(f, mergedOpts, config)));
 }
 
 // ─── Flag config resolution ───────────────────────────────────────────────
@@ -194,6 +198,16 @@ function resolveFlagOverrides(
   if (globalFlags && !langFlags) return globalFlags;
   if (!globalFlags && langFlags) return langFlags;
   return { ...globalFlags, ...langFlags };
+}
+
+function applyLanguageFlags(
+  filePath: string,
+  options: AnalysisOptions,
+  config: QualitasConfig,
+): AnalysisOptions {
+  const flagOverrides = resolveFlagOverrides(filePath, config);
+  if (!flagOverrides) return options;
+  return { ...options, flagOverrides: { ...options.flagOverrides, ...flagOverrides } };
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────

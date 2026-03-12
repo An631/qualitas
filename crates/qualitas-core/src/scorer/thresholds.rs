@@ -41,6 +41,33 @@ struct FlagDefaults {
     error: f64,
 }
 
+/// Look up a flag config by name, trying both camelCase and SCREAMING_SNAKE_CASE.
+/// e.g., "tooManyParams" also matches "TOO_MANY_PARAMS" in the config.
+fn find_flag_override<'a>(
+    overrides: &'a HashMap<String, FlagConfig>,
+    camel_name: &str,
+) -> Option<&'a FlagConfig> {
+    // Try exact camelCase match first (e.g., "tooManyParams")
+    if let Some(cfg) = overrides.get(camel_name) {
+        return Some(cfg);
+    }
+    // Convert camelCase to SCREAMING_SNAKE_CASE and try that
+    let snake = camel_to_screaming_snake(camel_name);
+    overrides.get(&snake)
+}
+
+/// Convert "tooManyParams" → "TOO_MANY_PARAMS"
+fn camel_to_screaming_snake(s: &str) -> String {
+    let mut result = String::with_capacity(s.len() + 4);
+    for (i, ch) in s.chars().enumerate() {
+        if ch.is_uppercase() && i > 0 {
+            result.push('_');
+        }
+        result.push(ch.to_ascii_uppercase());
+    }
+    result
+}
+
 fn resolve_flag(
     defaults: &FlagDefaults,
     overrides: Option<&HashMap<String, FlagConfig>>,
@@ -51,7 +78,7 @@ fn resolve_flag(
         defaults.warn,
         defaults.error,
     );
-    match overrides.and_then(|m| m.get(name)) {
+    match overrides.and_then(|m| find_flag_override(m, name)) {
         Some(FlagConfig::Enabled(true)) => ResolvedFlagThresholds {
             enabled: true,
             warn: default_warn,
@@ -707,6 +734,89 @@ mod tests {
         assert!(
             (loc_flag.threshold - 60.0).abs() < 0.01,
             "threshold should be custom warn=60"
+        );
+    }
+
+    // ── SCREAMING_SNAKE_CASE config key tests ────────────────────────────
+
+    #[test]
+    fn screaming_snake_case_keys_work() {
+        let mut metrics = zero_metrics();
+        metrics.structural.parameter_count = 3;
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "TOO_MANY_PARAMS".to_string(),
+            FlagConfig::Custom {
+                warn: 2.0,
+                error: 4.0,
+            },
+        );
+        let flags = generate_flags(&metrics, Some(&overrides));
+        let flag = flags
+            .iter()
+            .find(|f| f.flag_type == FlagType::TooManyParams)
+            .expect("TOO_MANY_PARAMS key should match tooManyParams flag");
+        assert_eq!(
+            flag.severity,
+            Severity::Warning,
+            "params=3 with warn=2 should be a warning",
+        );
+    }
+
+    #[test]
+    fn screaming_snake_case_disable_works() {
+        let mut metrics = zero_metrics();
+        metrics.cognitive_flow.score = 20;
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "HIGH_COGNITIVE_FLOW".to_string(),
+            FlagConfig::Enabled(false),
+        );
+        let flags = generate_flags(&metrics, Some(&overrides));
+        assert!(
+            !flags
+                .iter()
+                .any(|f| f.flag_type == FlagType::HighCognitiveFlow),
+            "HIGH_COGNITIVE_FLOW=false should suppress the flag",
+        );
+    }
+
+    #[test]
+    fn camel_case_still_works_with_normalization() {
+        let mut metrics = zero_metrics();
+        metrics.structural.parameter_count = 3;
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "tooManyParams".to_string(),
+            FlagConfig::Custom {
+                warn: 2.0,
+                error: 4.0,
+            },
+        );
+        let flags = generate_flags(&metrics, Some(&overrides));
+        assert!(
+            flags.iter().any(|f| f.flag_type == FlagType::TooManyParams),
+            "camelCase key should still work",
+        );
+    }
+
+    #[test]
+    fn camel_to_screaming_snake_conversion() {
+        assert_eq!(
+            super::camel_to_screaming_snake("tooManyParams"),
+            "TOO_MANY_PARAMS"
+        );
+        assert_eq!(
+            super::camel_to_screaming_snake("highCognitiveFlow"),
+            "HIGH_COGNITIVE_FLOW"
+        );
+        assert_eq!(
+            super::camel_to_screaming_snake("excessiveReturns"),
+            "EXCESSIVE_RETURNS"
+        );
+        assert_eq!(
+            super::camel_to_screaming_snake("highHalsteadEffort"),
+            "HIGH_HALSTEAD_EFFORT"
         );
     }
 }
