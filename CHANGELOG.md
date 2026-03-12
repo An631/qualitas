@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.4
+
+### Patch Changes
+
+- [`5435629`](https://github.com/An631/qualitas/commit/5435629882feef7ce08e508776ca5aca81395411) - Improving configuration loading flexibility for consumers and adding per language flag overrides logic.
+
 ## 0.2.3
 
 ### Patch Changes
