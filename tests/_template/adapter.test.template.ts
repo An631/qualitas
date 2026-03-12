@@ -45,7 +45,7 @@ describe('<Language> — complex code', () => {
     const report = analyzeSource(src, 'params.<ext>');
     const fn = report.functions[0];
     expect(fn).toBeDefined();
-    const paramsFlag = fn!.flags.find((f) => f.flagType === 'TOO_MANY_PARAMS');
+    const paramsFlag = fn.flags.find((f) => f.flagType === 'TOO_MANY_PARAMS');
     expect(paramsFlag).toBeDefined();
   });
 });
@@ -60,8 +60,8 @@ describe('<Language> — SourceLocation line numbers', () => {
     const report = analyzeSource(src, 'loc.<ext>');
     const fn = report.functions[0];
     expect(fn).toBeDefined();
-    expect(fn!.location.startLine).toBeGreaterThan(0);
-    expect(fn!.location.startLine).toBeLessThanOrEqual(fn!.location.endLine);
+    expect(fn.location.startLine).toBeGreaterThan(0);
+    expect(fn.location.startLine).toBeLessThanOrEqual(fn.location.endLine);
   });
 });
 

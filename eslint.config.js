@@ -9,6 +9,7 @@ module.exports = [
       parserOptions: {
         ecmaVersion: 2022,
         sourceType: 'module',
+        project: true,
       },
     },
     plugins: {
@@ -16,11 +17,8 @@ module.exports = [
     },
     rules: {
       ...tsPlugin.configs.recommended.rules,
-      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
-      '@typescript-eslint/no-explicit-any': 'warn',
-      '@typescript-eslint/no-non-null-assertion': 'off',
-      '@typescript-eslint/no-require-imports': 'off', // napi-rs binding loader uses require()
-      'no-console': 'off',
+      ...tsPlugin.configs['recommended-type-checked'].rules,
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
   },
   {
@@ -30,6 +28,7 @@ module.exports = [
       parserOptions: {
         ecmaVersion: 2022,
         sourceType: 'module',
+        project: true,
       },
     },
     plugins: {
@@ -37,14 +36,18 @@ module.exports = [
     },
     rules: {
       ...tsPlugin.configs.recommended.rules,
-      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
-      '@typescript-eslint/no-explicit-any': 'off', // test fixtures intentionally use any
-      '@typescript-eslint/no-non-null-assertion': 'off',
-      '@typescript-eslint/no-require-imports': 'off',
-      'no-console': 'off',
+      ...tsPlugin.configs['recommended-type-checked'].rules,
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
   },
   {
-    ignores: ['dist/', 'node_modules/', 'target/', 'qualitas_napi.js', 'qualitas_napi.d.ts'],
+    ignores: [
+      'dist/',
+      'node_modules/',
+      'target/',
+      'qualitas_napi.js',
+      'qualitas_napi.d.ts',
+      'tests/**/fixtures/**',
+    ],
   },
 ];

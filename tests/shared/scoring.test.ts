@@ -66,11 +66,11 @@ function messy(a: any, b: any, c: any, d: any) {
     const report = analyzeSource(src, 'messy.ts');
     const fn = report.functions[0];
     expect(fn).toBeDefined();
-    const bd = fn!.scoreBreakdown;
+    const bd = fn.scoreBreakdown;
     const sumPenalties =
       bd.cfcPenalty + bd.dciPenalty + bd.ircPenalty + bd.dcPenalty + bd.smPenalty;
     expect(Math.abs(sumPenalties - bd.totalPenalty)).toBeLessThan(0.01);
-    expect(fn!.score).toBeCloseTo(100 - bd.totalPenalty, 1);
+    expect(fn.score).toBeCloseTo(100 - bd.totalPenalty, 1);
   });
 });
 

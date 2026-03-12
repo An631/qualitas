@@ -13,6 +13,7 @@ export function loadConfig(startDir: string): QualitasConfig {
   try {
     const configPath = findConfigFile(startDir);
     if (!configPath) return {};
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-require-imports -- Dynamic config file loading requires require()
     const loaded = require(configPath);
     return (loaded && typeof loaded === 'object' ? loaded : {}) as QualitasConfig;
   } catch {

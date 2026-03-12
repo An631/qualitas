@@ -38,7 +38,7 @@ export function capitalize(s: string): string {
     const report = analyzeSource(src, 'capitalize.ts');
     const fnReport = report.functions[0];
     expect(fnReport).toBeDefined();
-    expect(fnReport!.score).toBeGreaterThan(60);
+    expect(fnReport.score).toBeGreaterThan(60);
   });
 });
 
@@ -81,7 +81,7 @@ function processOrders(orders: any[], config: any, logger: any, db: any, cache: 
 
     const fn = report.functions[0];
     expect(fn).toBeDefined();
-    const cfcFlag = fn!.flags.find((f) => f.flagType === 'HIGH_COGNITIVE_FLOW');
+    const cfcFlag = fn.flags.find((f) => f.flagType === 'HIGH_COGNITIVE_FLOW');
     expect(cfcFlag).toBeDefined();
   });
 
@@ -90,7 +90,7 @@ function processOrders(orders: any[], config: any, logger: any, db: any, cache: 
     const report = analyzeSource(src, 'params.ts');
     const fn = report.functions[0];
     expect(fn).toBeDefined();
-    const paramsFlag = fn!.flags.find((f) => f.flagType === 'TOO_MANY_PARAMS');
+    const paramsFlag = fn.flags.find((f) => f.flagType === 'TOO_MANY_PARAMS');
     expect(paramsFlag).toBeDefined();
     expect(paramsFlag!.severity).toBe('error');
   });
@@ -101,9 +101,9 @@ function processOrders(orders: any[], config: any, logger: any, db: any, cache: 
     const report = analyzeSource(src, 'long.ts');
     const fn = report.functions[0];
     expect(fn).toBeDefined();
-    const locFlag = fn!.flags.find((f) => f.flagType === 'TOO_LONG');
+    const locFlag = fn.flags.find((f) => f.flagType === 'TOO_LONG');
     expect(locFlag).toBeDefined();
-    expect(fn!.metrics.structural.loc).toBeGreaterThanOrEqual(41);
+    expect(fn.metrics.structural.loc).toBeGreaterThanOrEqual(41);
   });
 
   it('flags DEEP_NESTING for > 4 levels', () => {
@@ -125,8 +125,8 @@ function f(a: any) {
     const report = analyzeSource(src, 'nesting.ts');
     const fn = report.functions[0];
     expect(fn).toBeDefined();
-    expect(fn!.metrics.structural.maxNestingDepth).toBeGreaterThanOrEqual(4);
-    const nestFlag = fn!.flags.find((f) => f.flagType === 'DEEP_NESTING');
+    expect(fn.metrics.structural.maxNestingDepth).toBeGreaterThanOrEqual(4);
+    const nestFlag = fn.flags.find((f) => f.flagType === 'DEEP_NESTING');
     expect(nestFlag).toBeDefined();
   });
 });
@@ -146,9 +146,9 @@ describe('TypeScript — SourceLocation line numbers', () => {
     const report = analyzeSource(src, 'loc.ts');
     const fn = report.functions[0];
     expect(fn).toBeDefined();
-    expect(fn!.location.startLine).toBe(4);
-    expect(fn!.location.endLine).toBe(6);
-    expect(fn!.location.startLine).toBeLessThanOrEqual(fn!.location.endLine);
+    expect(fn.location.startLine).toBe(4);
+    expect(fn.location.endLine).toBe(6);
+    expect(fn.location.startLine).toBeLessThanOrEqual(fn.location.endLine);
   });
 
   it('startLine of second function is after first function', () => {
@@ -181,7 +181,7 @@ function readConfig(dir: string) {
     const report = analyzeSource(src, 'config.ts');
     const fn = report.functions[0];
     expect(fn).toBeDefined();
-    expect(fn!.metrics.dependencyCoupling.distinctApiCalls).toBeGreaterThanOrEqual(2);
+    expect(fn.metrics.dependencyCoupling.distinctApiCalls).toBeGreaterThanOrEqual(2);
   });
 
   it('reports file-level import count and external packages', () => {
@@ -202,8 +202,8 @@ export function fetch() { return axios.get('/data'); }
     const src = `function pure(a: number, b: number) { return a + b; }`;
     const report = analyzeSource(src, 'pure.ts');
     const fn = report.functions[0];
-    expect(fn!.metrics.dependencyCoupling.distinctApiCalls).toBe(0);
-    expect(fn!.metrics.dependencyCoupling.rawScore).toBe(0);
+    expect(fn.metrics.dependencyCoupling.distinctApiCalls).toBe(0);
+    expect(fn.metrics.dependencyCoupling.rawScore).toBe(0);
   });
 });
 
@@ -239,8 +239,8 @@ export function generateReport(records: any[]): string {
     const report = analyzeSource(src, 'report.ts');
     const fn = report.functions[0];
     expect(fn).toBeDefined();
-    expect(fn!.metrics.identifierReference.totalIrc).toBeGreaterThan(20);
-    expect(fn!.metrics.identifierReference.hotspots.length).toBeGreaterThan(0);
+    expect(fn.metrics.identifierReference.totalIrc).toBeGreaterThan(20);
+    expect(fn.metrics.identifierReference.hotspots.length).toBeGreaterThan(0);
   });
 
   it('flags HIGH_IDENTIFIER_CHURN when IRC exceeds error threshold', () => {
@@ -259,7 +259,7 @@ export function generateReport(records: any[]): string {
     const report = analyzeSource(lines, 'irc.ts');
     const fn = report.functions[0];
     expect(fn).toBeDefined();
-    const ircFlag = fn!.flags.find((f) => f.flagType === 'HIGH_IDENTIFIER_CHURN');
+    const ircFlag = fn.flags.find((f) => f.flagType === 'HIGH_IDENTIFIER_CHURN');
     expect(ircFlag).toBeDefined();
   });
 });
@@ -383,7 +383,7 @@ const processItems = (items: any[]): any[] => {
     const report = analyzeSource(src, 'async.ts');
     const fn = report.functions[0];
     expect(fn).toBeDefined();
-    expect(fn!.isAsync).toBe(true);
+    expect(fn.isAsync).toBe(true);
   });
 });
 
