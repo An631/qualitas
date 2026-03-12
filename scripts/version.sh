@@ -32,4 +32,7 @@ node -e "
   }
 "
 
+# Update lockfile. Use --omit=optional because the new binding version hasn't
+# been published to npm yet at this point. The publish-platform CI step will
+# re-sync the lockfile after bindings are published.
 npm install --omit=optional --package-lock-only
