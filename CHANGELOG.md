@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.5
+
+### Patch Changes
+
+- [#28](https://github.com/An631/qualitas/pull/28) [`d02f84f`](https://github.com/An631/qualitas/commit/d02f84f7efc134fc4c488b68b491ee06aba94119) Thanks [@An631](https://github.com/An631)! - Sync package-lock.json after platform bindings are published to prevent lockfile drift
+
+- [`1ab1735`](https://github.com/An631/qualitas/commit/1ab1735ba801f3ad057b60e1b64db99ddc62683e) - Adding qualitas.config.js file to default excludes.
+
 ## 0.2.4
 
 ### Patch Changes
