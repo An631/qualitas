@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.3
+
+### Patch Changes
+
+- [`e48ce9e`](https://github.com/An631/qualitas/commit/e48ce9efb789e75549cc2396b6f67d22f1991384) - Supporting parallel file analysis execution for performance and adding perf tracking logs. Included a new parameter to provide a config file to the cli commands.
+
+- [`2003d45`](https://github.com/An631/qualitas/commit/2003d45758b9ce7b43f2521794d9d522af9a9cd3) - Making linting and type rules stricter
+
 ## 0.2.2
 
 ### Patch Changes
