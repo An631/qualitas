@@ -1,6 +1,6 @@
 {
   "name": "qualitas",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Multi-language code quality measurement — 5-pillar Quality Score based on CC-Sonar, Halstead, and eye-tracking research",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -89,11 +89,11 @@
     "typescript": "^5.4.0"
   },
   "optionalDependencies": {
-    "@qualitas/binding-darwin-arm64": "^0.2.2",
-    "@qualitas/binding-darwin-x64": "^0.2.2",
-    "@qualitas/binding-linux-arm64-gnu": "^0.2.2",
-    "@qualitas/binding-linux-x64-gnu": "^0.2.2",
-    "@qualitas/binding-win32-x64-msvc": "^0.2.2"
+    "@qualitas/binding-darwin-arm64": "^0.2.3",
+    "@qualitas/binding-darwin-x64": "^0.2.3",
+    "@qualitas/binding-linux-arm64-gnu": "^0.2.3",
+    "@qualitas/binding-linux-x64-gnu": "^0.2.3",
+    "@qualitas/binding-win32-x64-msvc": "^0.2.3"
   },
   "engines": {
     "node": ">=18.0.0"
