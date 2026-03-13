@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.6
+
+### Patch Changes
+
+- [`bffb57d`](https://github.com/An631/qualitas/commit/bffb57db4d89fd26d25f3390406f0993888d1f04) - Fixing the packagelock file syncing issues.
+
+- [#30](https://github.com/An631/qualitas/pull/30) [`fb90be2`](https://github.com/An631/qualitas/commit/fb90be20c3bbd4be0455a90365c925c9db0a0b3c) Thanks [@An631](https://github.com/An631)! - Revert post-publish lockfile sync step (blocked by branch protection)
+
 ## 0.2.5
 
 ### Patch Changes
