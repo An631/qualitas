@@ -1,6 +1,6 @@
 {
   "name": "@qualitas/binding-darwin-x64",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "qualitas native binary for macOS Intel (x64)",
   "keywords": [
     "qualitas",
