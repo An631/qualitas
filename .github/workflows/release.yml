@@ -256,21 +256,6 @@ jobs:
             exit 1
           fi
 
-      - name: Sync package-lock after platform publish
-        run: |
-          npm install --package-lock-only
-          if git diff --quiet package-lock.json; then
-            echo "package-lock.json is up to date"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add package-lock.json
-            git commit -m "Syncing package-lock file [skip ci]"
-            git push
-          fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Get version
         id: version
         run: echo "version=$(node -e 'console.log(require("./package.json").version)')" >> "$GITHUB_OUTPUT"
