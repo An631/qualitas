@@ -1,6 +1,6 @@
 # Qualitas
 
-**A next generation code quality measurement tool that actually works**. It measures code quality across five research-backed pillars and returns a single 0–100 **Quality Score** to guide the health of your code base. It is written in Rust using [oxc_parser](https://oxc.rs/) for native-speed analysis, distributed as a native npm package via [napi-rs](https://napi.rs/), and provides both a programmatic TypeScript API and a CLI binary for ease of use.
+**A next generation code quality measurement tool that actually works**. It measures code quality across five research-backed pillars and returns a single 0–100 **Quality Score** to guide the health of your code base. It supports TypeScript/JavaScript, Rust, and Python out of the box. The core is written in Rust using [oxc_parser](https://oxc.rs/) and [tree-sitter](https://tree-sitter.github.io/) for native-speed analysis, distributed as a native npm package via [napi-rs](https://napi.rs/), and provides both a programmatic TypeScript API and a CLI binary for ease of use.
 
 ---
 
@@ -35,8 +35,11 @@ npx qualitas ./src/myFile.ts
 # Analyze a directory
 npx qualitas ./src/
 
-# JSON output for agents/automation
-npx qualitas ./src/myFile.ts -f json
+# JSON report (writes to qualitas-report.json by default)
+npx qualitas ./src/ -f json
+
+# JSON report to a specific file
+npx qualitas ./src/ -f json -o report.json
 
 # Show only functions that have flags
 npx qualitas ./src/ -f flagged
@@ -253,6 +256,8 @@ Arguments:
 Options:
   -f, --format <format>         Output format (default: text)
                                   text | compact | detail | flagged | json | markdown | summary
+  -o, --output <path>           Output file for report formats (json, markdown)
+  -c, --config <path>           Path to qualitas.config.js (overrides auto-detection)
   -p, --profile <name>          Weight profile: default | cc-focused | data-focused | strict
   -t, --threshold <n>           Exit code 1 if any score is below this (default: 65)
   --fail-on-flags <level>       Exit code 1 if any function has flags: warn | error
@@ -263,6 +268,8 @@ Options:
 
 ### Output formats
 
+**Console formats** — print to stdout, exit code reflects threshold/flag violations:
+
 | Format | Description |
 |--------|-------------|
 | `text` (default) | Per-function rows with flags |
@@ -270,6 +277,11 @@ Options:
 | `flagged` | Only show functions that have flags |
 | `compact` | One-line-per-file summary |
 | `summary` | Executive summary with pillar health, grade histograms, and deduction breakdown |
+
+**Report formats** — write to file (defaults to `qualitas-report.<ext>` or use `-o`), always exit 0:
+
+| Format | Description |
+|--------|-------------|
 | `json` | Full report as JSON (for agents/pipelines) |
 | `markdown` | Markdown tables with badge-style scores (for PRs) |
 
@@ -277,8 +289,8 @@ Options:
 
 | Code | Meaning |
 |------|---------|
-| `0` | All scores at or above threshold (and no flags, if `--fail-on-flags` is set) |
-| `1` | One or more scores below threshold, or flags detected at the configured severity |
+| `0` | All scores at or above threshold (console formats), or report written successfully (json/markdown) |
+| `1` | One or more scores below threshold, or flags detected at the configured severity (console formats only) |
 | `2` | Parse error or file not found |
 
 ### `--fail-on-flags`
@@ -302,11 +314,17 @@ qualitas ./src/ --threshold 70
 # Zero-tolerance mode — fail on any warning or error flag
 qualitas ./src/ --fail-on-flags warn
 
-# Markdown report (great for PRs)
-qualitas ./src/ -f markdown > quality-report.md
+# Markdown report (writes to qualitas-report.md by default)
+qualitas ./src/ -f markdown
 
-# JSON for agent/pipeline consumption
-qualitas ./src/ -f json | jq '.score'
+# Markdown report to a specific path
+qualitas ./src/ -f markdown -o quality-report.md
+
+# JSON report to a specific path
+qualitas ./src/ -f json -o report.json
+
+# Use a config file from another location
+qualitas /path/to/other-repo -c ./qualitas.config.js
 
 # Executive summary with pillar health breakdown
 qualitas ./src/ -f summary
@@ -324,7 +342,7 @@ qualitas ./src/ -f flagged
 
 ```typescript
 import { quickScore, analyzeSource, analyzeFile, analyzeProject } from 'qualitas';
-import type { FileQualityReport, QuickScore, AnalysisOptions } from 'qualitas';
+import type { FileQualityReport, QuickScore, AnalysisOptions, QualitasConfig } from 'qualitas';
 
 // Fast check — returns only score, grade, and top flags (no full metric breakdown)
 const qs: QuickScore = quickScore(`
@@ -348,7 +366,15 @@ console.log(report.score);   // e.g. 98
 console.log(report.grade);   // 'A'
 console.log(report.functions[0].metrics.cognitiveFlow.score); // raw CFC value
 
-// Analyze a file
+// Per-language flag overrides via config (e.g., stricter thresholds for Python)
+const config: QualitasConfig = {
+  languages: {
+    python: { flags: { TOO_MANY_PARAMS: { warn: 3, error: 5 } } },
+  },
+};
+const pyReport = analyzeSource(pythonSource, 'app.py', {}, config);
+
+// Analyze a file (config parameter enables per-language flag resolution)
 const fileReport = await analyzeFile('./src/payment.ts', {
   profile: 'strict',
   refactoringThreshold: 70,
@@ -405,14 +431,18 @@ interface AnalysisOptions {
   // Score below which needsRefactoring = true (default: 65)
   refactoringThreshold?: number;
 
-  // Include *.test.ts / *.spec.ts files in project analysis (default: false)
+  // Include test files in project analysis (default: false)
   includeTests?: boolean;
 
-  // File extensions to include (default: .ts .tsx .js .jsx .mjs .cjs)
+  // File extensions to include (default: .ts .tsx .js .jsx .mjs .cjs .py .pyi)
   extensions?: string[];
 
-  // Directory names to exclude (appended to defaults: node_modules, dist, build, .git)
+  // Directories/files to exclude (default: .git, qualitas.config.js)
+  // Configure additional excludes (node_modules, dist, etc.) via qualitas.config.js
   exclude?: string[];
+
+  // Per-flag overrides — supports both camelCase and SCREAMING_SNAKE_CASE keys
+  flagOverrides?: Record<string, FlagConfig>;
 }
 ```
 
@@ -538,7 +568,8 @@ qualitas/
 │
 ├── tests/
 │   ├── shared/                 Cross-cutting tests (scoring, config, reporters, project)
-│   └── typescript/             TypeScript adapter tests + fixtures
+│   ├── typescript/             TypeScript adapter tests + fixtures
+│   └── _template/              Template for adding new language adapter tests
 │
 ├── qualitas_napi.js            Platform-aware native binding loader (auto-generated)
 └── bin/qualitas.js             Node.js CLI entry point shim
@@ -572,6 +603,12 @@ Language adapters parse source code and emit a stream of `QualitasEvent` values 
 
 Create a `qualitas.config.js` in your project root. All fields are optional — CLI flags take priority.
 
+Config file search order:
+
+1. Explicit `-c` / `--config` path (if provided)
+2. Walk up from the analyzed directory looking for `qualitas.config.js`
+3. Look next to the `qualitas` executable
+
 ```javascript
 module.exports = {
   // Exit code 1 if any function scores below this threshold (0-100)
@@ -583,20 +620,32 @@ module.exports = {
   // Weight profile: 'default' | 'cc-focused' | 'data-focused' | 'strict'
   profile: 'default',
 
-  // Directories/files to exclude from analysis
-  exclude: ['node_modules', 'dist', 'build', '.git', 'coverage', 'target'],
+  // Directories/files to exclude from analysis.
+  // Only .git and qualitas.config.js are excluded by default — configure all others here.
+  exclude: ['node_modules', 'dist', 'build', 'coverage', 'target'],
 
-  // Per-flag configuration (enable/disable, custom thresholds)
+  // Per-flag configuration (enable/disable, custom thresholds).
+  // Both camelCase and SCREAMING_SNAKE_CASE keys are supported.
   flags: {
-    tooManyParams: { warn: 5, error: 7 },
-    excessiveReturns: true,  // re-enable (disabled by default)
-    deepNesting: false,      // disable entirely
+    TOO_MANY_PARAMS: { warn: 5, error: 7 },
+    EXCESSIVE_RETURNS: true,  // re-enable (disabled by default)
+    DEEP_NESTING: false,      // disable entirely
   },
 
-  // Per-language test pattern configuration
+  // Per-language configuration
   languages: {
     typescript: {
       testPatterns: ['.test.', '.spec.', 'tests/'],
+    },
+    python: {
+      testPatterns: ['test_', '_test.py', 'tests/', 'conftest.py'],
+      // Per-language flag overrides (take precedence over global flags)
+      flags: {
+        TOO_MANY_PARAMS: { warn: 4, error: 6 },
+      },
+    },
+    rust: {
+      testPatterns: ['_test.rs', '_tests.rs', 'tests/'],
     },
   },
 };
@@ -630,8 +679,8 @@ npm run build
 npm run build:ts
 
 # Run all tests
-cargo test -p qualitas-core   # 94 Rust unit tests
-npm run test:ts               # 52 JS integration tests
+cargo test -p qualitas-core   # 146 Rust unit tests
+npm run test:ts               # 69 JS integration tests
 ```
 
 ---
@@ -640,7 +689,7 @@ npm run test:ts               # 52 JS integration tests
 
 ### Rust unit tests (`cargo test -p qualitas-core`)
 
-94 tests across all modules. Cover:
+146 tests across all modules. Cover:
 
 - Per-language conformance tests (TypeScript, Rust, and Python adapters)
 - CFC, DCI, IRC, DC, SM metric collectors via event-based IR
@@ -650,12 +699,14 @@ npm run test:ts               # 52 JS integration tests
 
 ### JavaScript integration tests (`npm run test:ts`)
 
-52 tests across `tests/shared/` and `tests/typescript/`. Exercise the full stack (Rust → napi → JS):
+69 tests across `tests/shared/` and `tests/typescript/`. Exercise the full stack (Rust → napi → JS):
 
-- Scoring, config loading, reporter output, project analysis
+- Scoring invariants, config loading/merging, reporter output, project analysis
+- Flag overrides: camelCase and SCREAMING_SNAKE_CASE keys, custom thresholds, enable/disable
+- Per-language flag overrides via config parameter
 - TypeScript adapter: function collection patterns, class methods, arrow functions
 - Python adapter: function/class extraction, comprehensions, decorators, async/await
-- Flag verification, scope filtering, scoring invariants
+- Weight profiles, threshold configuration, scope filtering
 
 ---
 
