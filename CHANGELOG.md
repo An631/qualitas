@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.7
+
+### Patch Changes
+
+- [`eef8668`](https://github.com/An631/qualitas/commit/eef8668d7e9ee488f49374f5386b3778cc03de78) - Syncing the package lock file
+
+- [`fc14359`](https://github.com/An631/qualitas/commit/fc14359ad543e0756ae6e3d573a60fc53325b5de) - Updating readme to have latest features reflected.
+
 ## 0.2.6
 
 ### Patch Changes
