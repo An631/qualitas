@@ -231,8 +231,37 @@ jobs:
             name=$(basename "$dir" | sed 's/bindings-//')
             mkdir -p "npm/$name"
             cp "$dir"/*.node "npm/$name/"
-            echo "Moved binary to npm/$name/:"
+            echo "Moved napi binary to npm/$name/:"
             ls -la "npm/$name/"*.node
+          done
+
+      - name: Move CLI binaries to platform packages
+        run: |
+          declare -A CLI_MAP
+          CLI_MAP[cli-linux-x64]="linux-x64-gnu"
+          CLI_MAP[cli-linux-arm64]="linux-arm64-gnu"
+          CLI_MAP[cli-darwin-x64]="darwin-x64"
+          CLI_MAP[cli-darwin-arm64]="darwin-arm64"
+          CLI_MAP[cli-win32-x64]="win32-x64-msvc"
+
+          for artifact_dir in artifacts/cli-*; do
+            name=$(basename "$artifact_dir")
+            target_dir="npm/${CLI_MAP[$name]}"
+
+            if [ -z "${CLI_MAP[$name]}" ]; then
+              echo "WARNING: Unknown CLI artifact: $name"
+              continue
+            fi
+
+            archive=$(ls "$artifact_dir"/qualitas-*.tar.gz "$artifact_dir"/qualitas-*.zip 2>/dev/null | head -1)
+            if [[ "$archive" == *.tar.gz ]]; then
+              tar xzf "$archive" -C "$target_dir"
+            elif [[ "$archive" == *.zip ]]; then
+              unzip -o "$archive" -d "$target_dir"
+            fi
+
+            echo "Moved CLI binary to $target_dir/:"
+            ls -la "$target_dir"/qualitas*
           done
 
       - name: Publish platform packages

@@ -16,7 +16,8 @@
   ],
   "main": "qualitas_napi.win32-x64-msvc.node",
   "files": [
-    "qualitas_napi.win32-x64-msvc.node"
+    "qualitas_napi.win32-x64-msvc.node",
+    "qualitas.exe"
   ],
   "repository": {
     "type": "git",

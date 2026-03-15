@@ -19,7 +19,8 @@
   ],
   "main": "qualitas_napi.linux-x64-gnu.node",
   "files": [
-    "qualitas_napi.linux-x64-gnu.node"
+    "qualitas_napi.linux-x64-gnu.node",
+    "qualitas"
   ],
   "repository": {
     "type": "git",

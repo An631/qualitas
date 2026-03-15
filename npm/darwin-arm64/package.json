@@ -16,7 +16,8 @@
   ],
   "main": "qualitas_napi.darwin-arm64.node",
   "files": [
-    "qualitas_napi.darwin-arm64.node"
+    "qualitas_napi.darwin-arm64.node",
+    "qualitas"
   ],
   "repository": {
     "type": "git",
