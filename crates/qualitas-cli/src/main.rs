@@ -600,11 +600,15 @@ fn find_language_test_patterns(
 }
 
 fn resolve_excludes(config: &qualitas_core::types::QualitasConfig) -> Vec<String> {
+    let mut excludes: Vec<String> = DEFAULT_EXCLUDE.iter().map(|s| (*s).to_string()).collect();
     if let Some(user_excludes) = &config.exclude {
-        user_excludes.clone()
-    } else {
-        DEFAULT_EXCLUDE.iter().map(|s| (*s).to_string()).collect()
+        for entry in user_excludes {
+            if !excludes.contains(entry) {
+                excludes.push(entry.clone());
+            }
+        }
     }
+    excludes
 }
 
 // ─── Per-file flag config resolution ──────────────────────────────────────────
