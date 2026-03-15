@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+### Minor Changes
+
+- [`8a59214`](https://github.com/An631/qualitas/commit/8a59214304ed113c7dd5ee9a9b62697c0023a885) - Removing unnecessary JS cli in favor or RS only CLI
+
 ## 0.2.7
 
 ### Patch Changes
