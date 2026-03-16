@@ -1,6 +1,6 @@
 {
   "name": "@qualitas/binding-linux-x64-gnu",
-  "version": "0.2.7",
+  "version": "0.3.0",
   "description": "qualitas native binary for Linux x64 (glibc)",
   "keywords": [
     "qualitas",

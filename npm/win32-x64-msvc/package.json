@@ -1,6 +1,6 @@
 {
   "name": "@qualitas/binding-win32-x64-msvc",
-  "version": "0.2.7",
+  "version": "0.3.0",
   "description": "qualitas native binary for Windows x64 (MSVC)",
   "keywords": [
     "qualitas",
