@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+### Patch Changes
+
+- [#34](https://github.com/An631/qualitas/pull/34) [`fd27b3a`](https://github.com/An631/qualitas/commit/fd27b3ae67e3b5295301e89ad5607f959a0aada8) Thanks [@An631](https://github.com/An631)! - Fix config exclude list replacing defaults instead of merging with them
+
 ## 0.3.0
 
 ### Minor Changes
