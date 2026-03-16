@@ -141,7 +141,7 @@ async function collectProjectFiles(
 ): Promise<string[]> {
   return collectFiles(resolve(dirPath), {
     extensions: opts.extensions ?? DEFAULT_EXTENSIONS,
-    exclude: opts.exclude ?? DEFAULT_EXCLUDE,
+    exclude: [...DEFAULT_EXCLUDE, ...(opts.exclude ?? [])],
     includeTests: opts.includeTests ?? false,
     testPatterns: resolveTestPatterns(config),
   });
