@@ -580,6 +580,7 @@ qualitas/
 - **TypeScript / JavaScript** — via [oxc_parser](https://oxc.rs/) (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`)
 - **Rust** — via [syn](https://docs.rs/syn) (`.rs`)
 - **Python** — via [tree-sitter-python](https://crates.io/crates/tree-sitter-python) (`.py`, `.pyi`)
+- **Go** — via [tree-sitter-go](https://crates.io/crates/tree-sitter-go) (`.go`)
 
 Adding a new language requires only one adapter file. See `CONTRIBUTING_LANGUAGE.md`.
 

@@ -181,6 +181,8 @@ function languageForExtension(filePath: string): string | null {
     case 'py':
     case 'pyi':
       return 'python';
+    case 'go':
+      return 'go';
     default:
       return null;
   }
