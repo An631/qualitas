@@ -287,9 +287,66 @@ impl<'src> RustExtractor<'src> {
             is_generator: false,
             events: emitter.events,
             loc_override: None,
-            statement_count: Some(block.stmts.len() as u32),
+            statement_count: Some(count_statements_recursive(&block.stmts)),
         }
     }
+}
+
+/// Count all statements recursively, including those inside nested blocks.
+fn count_statements_recursive(stmts: &[Stmt]) -> u32 {
+    let mut count = 0u32;
+    for stmt in stmts {
+        count += 1;
+        count += count_nested_in_expr_stmt(stmt);
+    }
+    count
+}
+
+/// Count statements inside nested blocks of a statement.
+fn count_nested_in_expr_stmt(stmt: &Stmt) -> u32 {
+    match stmt {
+        Stmt::Expr(expr, _) => count_nested_in_expr(expr),
+        Stmt::Local(local) => {
+            if let Some(init) = &local.init {
+                count_nested_in_expr(&init.expr)
+            } else {
+                0
+            }
+        }
+        _ => 0,
+    }
+}
+
+/// Count statements inside nested blocks of an expression.
+fn count_nested_in_expr(expr: &Expr) -> u32 {
+    match expr {
+        Expr::If(e) => count_nested_in_if_expr(e),
+        Expr::ForLoop(e) => count_statements_recursive(&e.body.stmts),
+        Expr::While(e) => count_statements_recursive(&e.body.stmts),
+        Expr::Loop(e) => count_statements_recursive(&e.body.stmts),
+        Expr::Match(e) => count_nested_in_match(e),
+        Expr::Block(e) => count_statements_recursive(&e.block.stmts),
+        Expr::Unsafe(e) => count_statements_recursive(&e.block.stmts),
+        _ => 0,
+    }
+}
+
+fn count_nested_in_if_expr(expr_if: &ExprIf) -> u32 {
+    let mut n = count_statements_recursive(&expr_if.then_branch.stmts);
+    if let Some((_, else_branch)) = &expr_if.else_branch {
+        n += match else_branch.as_ref() {
+            Expr::Block(b) => count_statements_recursive(&b.block.stmts),
+            other => 1 + count_nested_in_expr(other),
+        };
+    }
+    n
+}
+
+fn count_nested_in_match(m: &syn::ExprMatch) -> u32 {
+    m.arms
+        .iter()
+        .map(|arm| 1 + count_nested_in_expr(&arm.body))
+        .sum()
 }
 
 fn count_typed_params(sig: &syn::Signature) -> u32 {
@@ -319,7 +376,7 @@ impl RustExtractor<'_> {
             is_generator: false,
             events: emitter.events,
             loc_override: None,
-            statement_count: Some(block.stmts.len() as u32),
+            statement_count: Some(count_statements_recursive(&block.stmts)),
         }
     }
 }

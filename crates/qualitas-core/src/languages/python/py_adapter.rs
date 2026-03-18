@@ -374,8 +374,36 @@ fn count_statements(block: &Node) -> u32 {
     let mut count = 0u32;
     let mut cursor = block.walk();
     for child in block.named_children(&mut cursor) {
-        if child.kind() != "comment" {
-            count += 1;
+        if child.kind() == "comment" {
+            continue;
+        }
+        count += 1;
+        count += count_nested_statements(&child);
+    }
+    count
+}
+
+/// Count statements inside nested blocks of a statement node.
+fn count_nested_statements(node: &Node) -> u32 {
+    let mut count = 0u32;
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        match child.kind() {
+            "block" => count += count_statements(&child),
+            // else/elif/except/finally clauses contain a body block
+            "elif_clause"
+            | "else_clause"
+            | "except_clause"
+            | "except_group_clause"
+            | "finally_clause"
+            | "case_clause" => {
+                count += count_nested_statements(&child);
+            }
+            "body" => {
+                // Some nodes use a "body" field that is a block
+                count += count_statements(&child);
+            }
+            _ => {}
         }
     }
     count

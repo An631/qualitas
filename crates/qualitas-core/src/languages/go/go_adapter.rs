@@ -93,6 +93,12 @@ struct GoExtractor<'src> {
     imported_names: HashSet<String>,
 }
 
+struct FunctionExtractionBuildOptions {
+    name: String,
+    param_count: u32,
+    events: Vec<QualitasEvent>,
+}
+
 impl<'src> GoExtractor<'src> {
     fn new(source: &'src str) -> Self {
         Self {
@@ -134,20 +140,15 @@ impl<'src> GoExtractor<'src> {
         let mut emitter = GoBodyEventEmitter::new(self.source, &name, &self.imported_names);
         emitter.visit_block(&body_node);
 
-        Some(FunctionExtraction {
-            name,
-            inferred_name: None,
-            byte_start: node.start_byte() as u32,
-            byte_end: node.end_byte() as u32,
-            start_line: node.start_position().row as u32 + 1,
-            end_line: node.end_position().row as u32 + 1,
-            param_count,
-            is_async: false,
-            is_generator: false,
-            events: emitter.events,
-            loc_override: None,
-            statement_count: Some(count_statements(&body_node)),
-        })
+        Some(Self::build_function_extraction(
+            node,
+            &body_node,
+            FunctionExtractionBuildOptions {
+                name,
+                param_count,
+                events: emitter.events,
+            },
+        ))
     }
 
     fn extract_method(&mut self, node: &Node) {
@@ -164,9 +165,31 @@ impl<'src> GoExtractor<'src> {
         let mut emitter = GoBodyEventEmitter::new(self.source, &name, &self.imported_names);
         emitter.visit_block(&body_node);
 
-        let receiver_type = self.get_receiver_type(node);
+        let fe = Self::build_function_extraction(
+            node,
+            &body_node,
+            FunctionExtractionBuildOptions {
+                name,
+                param_count,
+                events: emitter.events,
+            },
+        );
 
-        let fe = FunctionExtraction {
+        self.store_method_extraction(node, fe);
+    }
+
+    fn build_function_extraction(
+        node: &Node,
+        body_node: &Node,
+        options: FunctionExtractionBuildOptions,
+    ) -> FunctionExtraction {
+        let FunctionExtractionBuildOptions {
+            name,
+            param_count,
+            events,
+        } = options;
+
+        FunctionExtraction {
             name,
             inferred_name: None,
             byte_start: node.start_byte() as u32,
@@ -176,16 +199,21 @@ impl<'src> GoExtractor<'src> {
             param_count,
             is_async: false,
             is_generator: false,
-            events: emitter.events,
+            events,
             loc_override: None,
-            statement_count: Some(count_statements(&body_node)),
-        };
-
-        if let Some(recv_type) = receiver_type {
-            self.method_groups.entry(recv_type).or_default().push(fe);
-        } else {
-            self.functions.push(fe);
+            statement_count: Some(count_statements(body_node)),
         }
+    }
+
+    fn store_method_extraction(&mut self, node: &Node, method: FunctionExtraction) {
+        if let Some(recv_type) = self.get_receiver_type(node) {
+            self.method_groups
+                .entry(recv_type)
+                .or_default()
+                .push(method);
+            return;
+        }
+        self.functions.push(method);
     }
 
     fn get_receiver_type(&self, node: &Node) -> Option<String> {
@@ -206,50 +234,67 @@ impl<'src> GoExtractor<'src> {
     fn extract_imports(&mut self, node: &Node) {
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
-            match child.kind() {
-                "import_spec" => self.extract_import_spec(&child),
-                "import_spec_list" => {
-                    let mut cursor2 = child.walk();
-                    for spec in child.named_children(&mut cursor2) {
-                        if spec.kind() == "import_spec" {
-                            self.extract_import_spec(&spec);
-                        }
-                    }
-                }
-                _ => {}
+            self.extract_import_child(&child);
+        }
+    }
+
+    fn extract_import_child(&mut self, node: &Node) {
+        match node.kind() {
+            "import_spec" => self.extract_import_spec(node),
+            "import_spec_list" => self.extract_import_spec_list(node),
+            _ => {}
+        }
+    }
+
+    fn extract_import_spec_list(&mut self, node: &Node) {
+        let mut cursor = node.walk();
+        for spec in node.named_children(&mut cursor) {
+            if spec.kind() != "import_spec" {
+                continue;
             }
+            self.extract_import_spec(&spec);
         }
     }
 
     fn extract_import_spec(&mut self, node: &Node) {
-        let path_node = node.child_by_field_name("path");
-        let name_node = node.child_by_field_name("name");
-
-        let path = path_node.map_or_else(String::new, |n| {
-            let text = node_text(&n, self.source);
-            // Strip quotes
-            text.trim_matches('"').to_string()
-        });
-
-        let binding = if let Some(alias) = name_node {
-            let alias_text = node_text(&alias, self.source);
-            if alias_text == "." || alias_text == "_" {
-                // Dot import or blank import
-                if alias_text == "." {
-                    // Dot import: all exported names are available directly
-                    // We can't enumerate them, use the path as a marker
-                    path.rsplit('/').next().unwrap_or(&path).to_string()
-                } else {
-                    return; // blank import, no binding
-                }
-            } else {
-                alias_text.to_string()
-            }
-        } else {
-            // Default binding is the last path segment
-            path.rsplit('/').next().unwrap_or(&path).to_string()
+        let path = self.import_path(node);
+        let Some(binding) = self.resolve_import_binding(node, &path) else {
+            return;
         };
+        self.record_import(path, binding);
+    }
 
+    fn import_path(&self, node: &Node) -> String {
+        let Some(path_node) = node.child_by_field_name("path") else {
+            return String::new();
+        };
+        let text = node_text(&path_node, self.source);
+        text.trim_matches('"').to_string()
+    }
+
+    fn resolve_import_binding(&self, node: &Node, path: &str) -> Option<String> {
+        let Some(alias_node) = node.child_by_field_name("name") else {
+            return Some(Self::default_import_binding(path));
+        };
+        self.resolve_alias_binding(&alias_node, path)
+    }
+
+    fn resolve_alias_binding(&self, alias_node: &Node, path: &str) -> Option<String> {
+        let alias_text = node_text(alias_node, self.source);
+        if alias_text == "_" {
+            return None;
+        }
+        if alias_text == "." {
+            return Some(Self::default_import_binding(path));
+        }
+        Some(alias_text.to_string())
+    }
+
+    fn default_import_binding(path: &str) -> String {
+        path.rsplit('/').next().unwrap_or(path).to_string()
+    }
+
+    fn record_import(&mut self, path: String, binding: String) {
         self.imported_names.insert(binding.clone());
         self.imports.push(ImportRecord {
             source: path,
@@ -368,11 +413,47 @@ fn count_param_names(param: &Node) -> u32 {
 }
 
 fn count_statements(block: &Node) -> u32 {
-    let mut count = 0u32;
+    // Go blocks are: block → { statement_list }
+    let target = find_statement_list(block);
+    count_statements_recursive(&target)
+}
+
+fn find_statement_list<'a>(block: &'a Node<'a>) -> Node<'a> {
     let mut cursor = block.walk();
     for child in block.named_children(&mut cursor) {
-        if child.kind() != "comment" {
-            count += 1;
+        if child.kind() == "statement_list" {
+            return child;
+        }
+    }
+    *block
+}
+
+/// Count all statements recursively, including those inside nested blocks.
+fn count_statements_recursive(node: &Node) -> u32 {
+    let mut count = 0u32;
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if child.kind() == "comment" {
+            continue;
+        }
+        count += 1;
+        count += count_nested_statements(&child);
+    }
+    count
+}
+
+/// Count statements inside nested blocks of a statement node.
+fn count_nested_statements(node: &Node) -> u32 {
+    let mut count = 0u32;
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        match child.kind() {
+            "block" => count += count_statements(&child),
+            "statement_list" => count += count_statements_recursive(&child),
+            "expression_case" | "default_case" | "type_case" | "communication_case" => {
+                count += count_nested_statements(&child);
+            }
+            _ => {}
         }
     }
     count
@@ -1049,27 +1130,44 @@ impl<'src> GoBodyEventEmitter<'src> {
     // ── Composite literal ───────────────────────────────────────────────
 
     fn visit_composite_literal(&mut self, node: &Node) {
-        if let Some(body) = node.child_by_field_name("body") {
-            let mut cursor = body.walk();
-            for child in body.named_children(&mut cursor) {
-                match child.kind() {
-                    "keyed_element" => {
-                        // Visit only the value side
-                        let mut inner_cursor = child.walk();
-                        let children: Vec<Node> = child.named_children(&mut inner_cursor).collect();
-                        if let Some(last) = children.last() {
-                            self.visit_expr(last);
-                        }
-                    }
-                    "literal_element" => {
-                        if let Some(inner) = child.named_child(0) {
-                            self.visit_expr(&inner);
-                        }
-                    }
-                    _ => self.visit_expr(&child),
-                }
-            }
+        let Some(body) = node.child_by_field_name("body") else {
+            return;
+        };
+        self.visit_composite_elements(&body);
+    }
+
+    fn visit_composite_elements(&mut self, body: &Node) {
+        let mut cursor = body.walk();
+        for child in body.named_children(&mut cursor) {
+            self.visit_composite_element(&child);
         }
+    }
+
+    fn visit_composite_element(&mut self, node: &Node) {
+        match node.kind() {
+            "keyed_element" => self.visit_keyed_element_value(node),
+            "literal_element" => self.visit_literal_element_value(node),
+            _ => self.visit_expr(node),
+        }
+    }
+
+    fn visit_keyed_element_value(&mut self, node: &Node) {
+        // keyed_element is `key: value`; we only visit the value side.
+        let mut inner_cursor = node.walk();
+        let mut value = None;
+        for child in node.named_children(&mut inner_cursor) {
+            value = Some(child);
+        }
+        if let Some(value) = value {
+            self.visit_expr(&value);
+        }
+    }
+
+    fn visit_literal_element_value(&mut self, node: &Node) {
+        let Some(inner) = node.named_child(0) else {
+            return;
+        };
+        self.visit_expr(&inner);
     }
 
     // ── Index & slice ───────────────────────────────────────────────────
