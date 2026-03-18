@@ -125,6 +125,180 @@ fn counts_nesting() {
     assert!(r.max_nesting_depth >= 2);
 }
 
+// ── Logical LOC (statement_count) tests ─────────────────────────────────────
+
+fn ts_first_fn_statement_count(source: &str) -> Option<u32> {
+    use crate::ir::language::LanguageAdapter;
+    let adapter = super::TypeScriptAdapter;
+    let extraction = adapter.extract(source, "test.ts").unwrap();
+    extraction
+        .functions
+        .into_iter()
+        .next()
+        .expect("Expected at least one function")
+        .statement_count
+}
+
+fn ts_first_fn_report(source: &str) -> crate::types::FunctionQualityReport {
+    let report = crate::analyzer::analyze_source_str(
+        source,
+        "test.ts",
+        &crate::types::AnalysisOptions::default(),
+    )
+    .unwrap();
+    report
+        .functions
+        .into_iter()
+        .next()
+        .expect("Expected at least one function in TS report")
+}
+
+#[test]
+fn ts_statement_count_single_return() {
+    let source = "function add(a: number, b: number): number { return a + b; }";
+    assert_eq!(
+        ts_first_fn_statement_count(source),
+        Some(1),
+        "Single return should give statement_count = 1",
+    );
+}
+
+#[test]
+fn ts_statement_count_empty_function() {
+    let source = "function empty() {}";
+    assert_eq!(ts_first_fn_statement_count(source), Some(0));
+}
+
+#[test]
+fn ts_statement_count_includes_nested_block_statements() {
+    let source = r"
+function check(x: number): number {
+    if (x > 0) {
+        const y = x * 2;
+        return y;
+    }
+    return x;
+}
+";
+    // 4 statements: if (+ nested const y, return y), return x
+    assert_eq!(
+        ts_first_fn_statement_count(source),
+        Some(4),
+        "Expected 4 statements (including nested)",
+    );
+}
+
+#[test]
+fn ts_statement_count_for_loop_body() {
+    let source = r"
+function process(items: number[]): number {
+    let total = 0;
+    for (const item of items) {
+        if (item > 0) {
+            total += item;
+        }
+    }
+    return total;
+}
+";
+    // 5 statements: let total, for (+ if (+ total +=)), return total
+    assert_eq!(
+        ts_first_fn_statement_count(source),
+        Some(5),
+        "Expected 5 statements (top-level + nested)",
+    );
+}
+
+#[test]
+fn ts_statement_count_switch_cases() {
+    let source = r#"
+function describe(x: number): string {
+    switch (x) {
+        case 1:
+            return "one";
+        case 2:
+            return "two";
+        default:
+            return "other";
+    }
+}
+"#;
+    // 4 statements: switch + 3 case returns
+    assert_eq!(
+        ts_first_fn_statement_count(source),
+        Some(4),
+        "Expected 4 statements (switch + 3 case returns)",
+    );
+}
+
+#[test]
+fn ts_statement_count_try_catch() {
+    let source = r"
+function safeParse(text: string): number {
+    try {
+        return parseInt(text);
+    } catch (e) {
+        return 0;
+    }
+}
+";
+    // 3 statements: try (+ return parseInt), catch (+ return 0)
+    assert_eq!(
+        ts_first_fn_statement_count(source),
+        Some(3),
+        "Expected 3 statements (try/catch + nested returns)",
+    );
+}
+
+#[test]
+fn ts_logical_loc_used_in_structural_metric() {
+    let source = r"
+function add(a: number, b: number): number {
+    return a + b;
+}
+";
+    let report = ts_first_fn_report(source);
+    assert_eq!(
+        report.metrics.structural.loc, 1,
+        "Structural metric should use logical LOC (1 statement), got {}",
+        report.metrics.structural.loc,
+    );
+}
+
+#[test]
+fn ts_logical_loc_includes_nested_statements() {
+    let source = r"
+function check(x: number): number {
+    if (x > 0) {
+        const y = x * 2;
+        return y;
+    }
+    return x;
+}
+";
+    let report = ts_first_fn_report(source);
+    assert_eq!(
+        report.metrics.structural.loc, 4,
+        "Logical LOC should include nested statements, got {}",
+        report.metrics.structural.loc,
+    );
+}
+
+#[test]
+fn ts_physical_loc_in_total_lines() {
+    let source = r"
+function add(a: number, b: number): number {
+    return a + b;
+}
+";
+    let report = ts_first_fn_report(source);
+    assert!(
+        report.metrics.structural.total_lines >= 3,
+        "total_lines should be >= 3 physical lines, got {}",
+        report.metrics.structural.total_lines,
+    );
+}
+
 #[test]
 fn ts_file_score_is_loc_weighted() {
     let source = r"
