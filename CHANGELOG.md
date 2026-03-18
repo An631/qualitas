@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0
+
+### Minor Changes
+
+- [#36](https://github.com/An631/qualitas/pull/36) [`e88ac3f`](https://github.com/An631/qualitas/commit/e88ac3feba70639759153d228aed03ae7b819ec4) Thanks [@An631](https://github.com/An631)! - Add Go language adapter via tree-sitter-go with full support for all Go control flow, goroutine detection, defer handling, and method receiver grouping
+
 ## Unreleased
 
 ### Minor Changes
