@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Copies tracked hooks from hooks/ into .git/hooks/ so they're active locally.
-// Runs automatically via the "prepare" lifecycle script on `npm install`.
+// Run with: npm run git-hooks:install
 
 const { copyFileSync, chmodSync, existsSync, readdirSync } = require('fs');
 const { join } = require('path');
