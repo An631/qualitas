@@ -177,11 +177,11 @@ func process(x int) int {
 }
 ";
     let stmt_count = go_first_fn_statement_count(source);
-    // 4 top-level statements: y :=, z :=, if, return
+    // 5 statements: y :=, z :=, if (+ nested return z), return y
     assert_eq!(
         stmt_count,
-        Some(4),
-        "Expected 4 top-level statements, got {stmt_count:?}",
+        Some(5),
+        "Expected 5 statements (including nested return), got {stmt_count:?}",
     );
 }
 
@@ -202,9 +202,8 @@ func empty() {
 }
 
 #[test]
-fn go_statement_count_excludes_nested_block_statements() {
-    // statement_count counts only top-level statements in the function body,
-    // not statements inside if/for/switch blocks.
+fn go_statement_count_includes_nested_block_statements() {
+    // statement_count counts all statements recursively, including nested blocks.
     let source = r"
 package main
 
@@ -217,11 +216,11 @@ func check(x int) string {
 }
 ";
     let stmt_count = go_first_fn_statement_count(source);
-    // Top-level statements: if, return — the y := and inner return are nested
+    // 4 statements: if, y :=, inner return, outer return
     assert_eq!(
         stmt_count,
-        Some(2),
-        "Expected 2 top-level statements (if + return), got {stmt_count:?}",
+        Some(4),
+        "Expected 4 statements (including nested), got {stmt_count:?}",
     );
 }
 
@@ -319,16 +318,16 @@ func doWork() error {
 }
 ";
     let report = go_first_fn_report(source);
-    // Top-level statements: err:=, if, err=, if, err=, if, return -> 7
+    // 10 statements: err:=, if, return err, err=, if, return err, err=, if, return err, return nil
     assert_eq!(
-        report.metrics.structural.loc, 7,
-        "Logical LOC should be 7 top-level statements, got {}",
+        report.metrics.structural.loc, 10,
+        "Logical LOC should be 10 statements (including nested returns), got {}",
         report.metrics.structural.loc,
     );
-    // Physical LOC is much higher because each if block spans 3 lines
+    // Physical LOC is higher because of braces and spacing
     assert!(
-        report.metrics.structural.total_lines > 7,
-        "Physical LOC ({}) should exceed logical LOC (7)",
+        report.metrics.structural.total_lines > 10,
+        "Physical LOC ({}) should exceed logical LOC (10)",
         report.metrics.structural.total_lines,
     );
 }
@@ -352,8 +351,8 @@ func (s *Server) Handle(req Request) Response {
     let method = &extraction.classes[0].methods[0];
     assert_eq!(
         method.statement_count,
-        Some(2),
-        "Method should have 2 top-level statements (if + return), got {:?}",
+        Some(3),
+        "Method should have 3 statements (if + nested return + outer return), got {:?}",
         method.statement_count,
     );
 }

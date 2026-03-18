@@ -369,9 +369,8 @@ fn count_param_names(param: &Node) -> u32 {
 
 fn count_statements(block: &Node) -> u32 {
     // Go blocks are: block → { statement_list }
-    // Find statement_list inside the block, or fall back to the node itself.
     let target = find_statement_list(block);
-    count_named_non_comment(&target)
+    count_statements_recursive(&target)
 }
 
 fn find_statement_list<'a>(block: &'a Node<'a>) -> Node<'a> {
@@ -384,12 +383,32 @@ fn find_statement_list<'a>(block: &'a Node<'a>) -> Node<'a> {
     *block
 }
 
-fn count_named_non_comment(node: &Node) -> u32 {
+/// Count all statements recursively, including those inside nested blocks.
+fn count_statements_recursive(node: &Node) -> u32 {
     let mut count = 0u32;
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
-        if child.kind() != "comment" {
-            count += 1;
+        if child.kind() == "comment" {
+            continue;
+        }
+        count += 1;
+        count += count_nested_statements(&child);
+    }
+    count
+}
+
+/// Count statements inside nested blocks of a statement node.
+fn count_nested_statements(node: &Node) -> u32 {
+    let mut count = 0u32;
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        match child.kind() {
+            "block" => count += count_statements(&child),
+            "statement_list" => count += count_statements_recursive(&child),
+            "expression_case" | "default_case" | "type_case" | "communication_case" => {
+                count += count_nested_statements(&child);
+            }
+            _ => {}
         }
     }
     count

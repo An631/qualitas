@@ -175,7 +175,10 @@ impl<'src> TsExtractor<'src> {
             Vec::new()
         };
 
-        let stmt_count = func.body.as_ref().map(|b| b.statements.len() as u32);
+        let stmt_count = func
+            .body
+            .as_ref()
+            .map(|b| count_statements_recursive(&b.statements));
         FunctionExtraction {
             name: name.to_string(),
             inferred_name,
@@ -219,7 +222,7 @@ impl<'src> TsExtractor<'src> {
             is_generator: false,
             events: emitter.events,
             loc_override: None,
-            statement_count: Some(arrow.body.statements.len() as u32),
+            statement_count: Some(count_statements_recursive(&arrow.body.statements)),
         });
     }
 }
@@ -448,7 +451,63 @@ fn build_file_scope_extraction(
         is_generator: false,
         events,
         loc_override: Some(loc),
-        statement_count: Some(spans.len() as u32),
+        statement_count: Some(spans.len() as u32), // file-scope: each span is one statement
+    }
+}
+
+/// Count all statements recursively, including those inside nested blocks.
+fn count_statements_recursive(stmts: &[Statement<'_>]) -> u32 {
+    let mut count = 0u32;
+    for stmt in stmts {
+        count += 1;
+        count += count_nested_in_statement(stmt);
+    }
+    count
+}
+
+/// Count statements inside nested blocks of a single statement.
+fn count_nested_in_statement(stmt: &Statement<'_>) -> u32 {
+    match stmt {
+        Statement::IfStatement(it) => {
+            let mut n = count_in_statement(&it.consequent);
+            if let Some(alt) = &it.alternate {
+                n += count_in_statement(alt);
+            }
+            n
+        }
+        Statement::ForStatement(it) => count_in_statement(&it.body),
+        Statement::ForInStatement(it) => count_in_statement(&it.body),
+        Statement::ForOfStatement(it) => count_in_statement(&it.body),
+        Statement::WhileStatement(it) => count_in_statement(&it.body),
+        Statement::DoWhileStatement(it) => count_in_statement(&it.body),
+        Statement::SwitchStatement(it) => {
+            let mut n = 0u32;
+            for case in &it.cases {
+                n += count_statements_recursive(&case.consequent);
+            }
+            n
+        }
+        Statement::TryStatement(it) => {
+            let mut n = count_statements_recursive(&it.block.body);
+            if let Some(handler) = &it.handler {
+                n += count_statements_recursive(&handler.body.body);
+            }
+            if let Some(finalizer) = &it.finalizer {
+                n += count_statements_recursive(&finalizer.body);
+            }
+            n
+        }
+        Statement::BlockStatement(it) => count_statements_recursive(&it.body),
+        Statement::LabeledStatement(it) => count_in_statement(&it.body),
+        _ => 0,
+    }
+}
+
+/// Helper: count statements inside a single Statement that may be a block or standalone.
+fn count_in_statement(stmt: &Statement<'_>) -> u32 {
+    match stmt {
+        Statement::BlockStatement(block) => count_statements_recursive(&block.body),
+        other => 1 + count_nested_in_statement(other),
     }
 }
 
