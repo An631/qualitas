@@ -368,9 +368,25 @@ fn count_param_names(param: &Node) -> u32 {
 }
 
 fn count_statements(block: &Node) -> u32 {
-    let mut count = 0u32;
+    // Go blocks are: block → { statement_list }
+    // We need to count statements inside statement_list, not block's direct children.
     let mut cursor = block.walk();
     for child in block.named_children(&mut cursor) {
+        if child.kind() == "statement_list" {
+            let mut count = 0u32;
+            let mut inner_cursor = child.walk();
+            for stmt in child.named_children(&mut inner_cursor) {
+                if stmt.kind() != "comment" {
+                    count += 1;
+                }
+            }
+            return count;
+        }
+    }
+    // Fallback: if no statement_list (e.g., empty block), count named children
+    let mut count = 0u32;
+    let mut cursor2 = block.walk();
+    for child in block.named_children(&mut cursor2) {
         if child.kind() != "comment" {
             count += 1;
         }
