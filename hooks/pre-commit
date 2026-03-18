@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Pre-commit hook: format staged files without touching unstaged changes.
+#
+# Strategy:
+# 1. Stash unstaged changes (keep staged intact)
+# 2. Run formatters on the staged files only
+# 3. Re-stage formatted files
+# 4. Restore unstaged changes from stash
+
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACMR | grep -v node_modules | grep -v qualitas_napi.js)
+
+if [ -z "$STAGED_FILES" ]; then
+  exit 0
+fi
+
+echo "pre-commit: staged files: $STAGED_FILES"
+
+# Stash only unstaged changes, keeping the index (staged files) intact
+HAS_UNSTAGED=$(git diff --name-only)
+if [ -n "$HAS_UNSTAGED" ]; then
+  git stash push --keep-index --quiet -m "pre-commit: unstaged changes"
+  STASHED=1
+else
+  STASHED=0
+fi
+
+# Call the format script directly (not via npm run) to avoid caching issues
+echo "pre-commit: formatting..."
+node scripts/format.js $STAGED_FILES
+
+# Re-stage formatted files
+for FILE in $STAGED_FILES; do
+  if [ -f "$FILE" ]; then
+    git add "$FILE"
+  fi
+done
+
+# Restore unstaged changes
+if [ "$STASHED" -eq 1 ]; then
+  git stash pop --quiet
+fi
+
+exit 0
