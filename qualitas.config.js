@@ -79,5 +79,12 @@ module.exports = {
         'conftest.py', // pytest configuration files
       ],
     },
+    go: {
+      testPatterns: [
+        '_test.go', // Go convention: foo_test.go
+        'tests/', // Files under tests/ directories (Unix)
+        'tests\\', // Files under tests\ directories (Windows)
+      ],
+    },
   },
 };

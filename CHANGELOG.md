@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Minor Changes
+
+- Added Go language adapter via `tree-sitter-go` (`.go` files)
+  - Full support for all Go control flow: if/else, for variants, switch, type switch, select
+  - Goroutine detection (`go func()`) emits `AsyncComplexity(Spawn)`
+  - `defer` bodies excluded from CFC but included in DCI
+  - Method receivers grouped into `ClassExtraction` by type name
+  - Higher CFC thresholds (18/25) to accommodate Go's `if err != nil` pattern
+  - Imports tracked by package name or alias for per-function coupling analysis
+
 ## 0.3.1
 
 ### Patch Changes
