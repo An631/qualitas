@@ -368,9 +368,26 @@ fn count_param_names(param: &Node) -> u32 {
 }
 
 fn count_statements(block: &Node) -> u32 {
-    let mut count = 0u32;
+    // Go blocks are: block → { statement_list }
+    // Find statement_list inside the block, or fall back to the node itself.
+    let target = find_statement_list(block);
+    count_named_non_comment(&target)
+}
+
+fn find_statement_list<'a>(block: &'a Node<'a>) -> Node<'a> {
     let mut cursor = block.walk();
     for child in block.named_children(&mut cursor) {
+        if child.kind() == "statement_list" {
+            return child;
+        }
+    }
+    *block
+}
+
+fn count_named_non_comment(node: &Node) -> u32 {
+    let mut count = 0u32;
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
         if child.kind() != "comment" {
             count += 1;
         }
