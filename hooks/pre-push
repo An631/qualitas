@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Pre-push hook: run full verify before allowing push.
+# This ensures tests, lint, formatting, and quality checks all pass.
+
+echo "pre-push: checking package-lock.json is in sync with package.json..."
+npm install --package-lock-only --omit=optional 2>/dev/null
+if ! git diff --quiet package-lock.json; then
+  echo ""
+  echo "pre-push: package-lock.json is out of sync with package.json."
+  echo "The lockfile has been updated. Please stage and commit it, then push again."
+  exit 1
+fi
+echo "pre-push: package-lock.json is in sync."
+echo ""
+
+echo "Ensuring you have a changeset file ready for your PR..."
+npm run changeset:check
+
+STATUS=$?
+if [ $STATUS -ne 0 ]; then
+  echo ""
+  echo "pre-push: changeset check failed (exit $STATUS). Push aborted."
+  echo "Run 'npm run changeset' to create a changeset file describing your changes."
+  exit 1
+fi
+
+echo "pre-push: running npm run verify..."
+npm run verify
+
+STATUS=$?
+if [ $STATUS -ne 0 ]; then
+  echo ""
+  echo "pre-push: verify failed (exit $STATUS). Push aborted."
+  echo "Fix the issues above and try again."
+  exit 1
+fi
+
+echo "pre-push: all checks passed."
+exit 0
