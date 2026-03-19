@@ -21,6 +21,7 @@ module.exports = {
     'vendor',
     'qualitas_napi.js', // Auto-generated NAPI binding loader
     'eslint.config.js', // Config file, not application code
+    'tests', // Test files and intentionally complex fixtures
   ],
 
   // Weight profile: 'default' | 'cc-focused' | 'data-focused' | 'strict'
@@ -84,6 +85,16 @@ module.exports = {
         '_test.go', // Go convention: foo_test.go
         'tests/', // Files under tests/ directories (Unix)
         'tests\\', // Files under tests\ directories (Windows)
+      ],
+    },
+    java: {
+      testPatterns: [
+        'Test.java', // FooTest.java (JUnit convention)
+        'Tests.java', // FooTests.java
+        'test/', // Files under test/ directories (Unix)
+        'test\\', // Files under test\ directories (Windows)
+        'src/test/', // Maven/Gradle test source root (Unix)
+        'src\\test\\', // Maven/Gradle test source root (Windows)
       ],
     },
   },

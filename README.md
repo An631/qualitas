@@ -1,6 +1,6 @@
 # Qualitas
 
-**A next generation code quality measurement tool that actually works**. It measures code quality across five research-backed pillars and returns a single 0–100 **Quality Score** to guide the health of your code base. It supports TypeScript/JavaScript, Rust, and Python out of the box. The core is written in Rust using [oxc_parser](https://oxc.rs/) and [tree-sitter](https://tree-sitter.github.io/) for native-speed analysis, distributed as a native npm package via [napi-rs](https://napi.rs/), and provides both a programmatic TypeScript API and a CLI binary for ease of use.
+**A next generation code quality measurement tool that actually works**. It measures code quality across five research-backed pillars and returns a single 0–100 **Quality Score** to guide the health of your code base. It supports TypeScript/JavaScript, Rust, Python, Go, and Java out of the box. The core is written in Rust using [oxc_parser](https://oxc.rs/) and [tree-sitter](https://tree-sitter.github.io/) for native-speed analysis, distributed as a native npm package via [napi-rs](https://napi.rs/), and provides both a programmatic TypeScript API and a CLI binary for ease of use.
 
 ---
 
@@ -581,6 +581,7 @@ qualitas/
 - **Rust** — via [syn](https://docs.rs/syn) (`.rs`)
 - **Python** — via [tree-sitter-python](https://crates.io/crates/tree-sitter-python) (`.py`, `.pyi`)
 - **Go** — via [tree-sitter-go](https://crates.io/crates/tree-sitter-go) (`.go`)
+- **Java** — via [tree-sitter-java](https://crates.io/crates/tree-sitter-java) (`.java`)
 
 Adding a new language requires only one adapter file. See `CONTRIBUTING_LANGUAGE.md`.
 

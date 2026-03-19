@@ -9,6 +9,7 @@ use crate::ir::language::LanguageAdapter;
 
 // Register language adapters here:
 pub mod go;
+pub mod java;
 pub mod python;
 pub mod rust;
 pub mod typescript;
@@ -20,6 +21,7 @@ fn all_adapters() -> Vec<Box<dyn LanguageAdapter>> {
         Box::new(rust::RustAdapter),
         Box::new(python::PythonAdapter),
         Box::new(go::GoAdapter),
+        Box::new(java::JavaAdapter),
     ]
 }
 

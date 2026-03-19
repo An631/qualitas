@@ -183,6 +183,8 @@ function languageForExtension(filePath: string): string | null {
       return 'python';
     case 'go':
       return 'go';
+    case 'java':
+      return 'java';
     default:
       return null;
   }

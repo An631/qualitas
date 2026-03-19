@@ -18,6 +18,20 @@
 
 ### Minor Changes
 
+- Added Java language adapter via `tree-sitter-java` (`.java` files)
+  - Full support for all Java control flow: if/else, for, enhanced for, while, do-while, switch, try/catch/finally
+  - First adapter to use `DoWhile` event kind
+  - Try-with-resources emits `ContextManager` (like Python's `with`)
+  - Ternary operator (`? :`) emits `LogicOp(Ternary)`
+  - Lambda expressions emit `NestedCallback` + `NestedFunctionEnter/Exit`
+  - Labeled break/continue emits `LabeledFlow`
+  - Anonymous inner classes extracted as separate `ClassExtraction` entries; methods isolated via `NestedFunctionEnter/Exit`
+  - Nested/inner classes extracted with `OuterClass.InnerClass` naming
+  - Constructors named after their class
+  - Imports tracked by last identifier segment for per-function coupling analysis
+  - `instanceof` tracked as an operator
+  - Method references (`::`) tracked as an operator
+
 - Added Go language adapter via `tree-sitter-go` (`.go` files)
   - Full support for all Go control flow: if/else, for variants, switch, type switch, select
   - Goroutine detection (`go func()`) emits `AsyncComplexity(Spawn)`
