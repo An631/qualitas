@@ -86,5 +86,15 @@ module.exports = {
         'tests\\', // Files under tests\ directories (Windows)
       ],
     },
+    java: {
+      testPatterns: [
+        'Test.java', // FooTest.java (JUnit convention)
+        'Tests.java', // FooTests.java
+        'test/', // Files under test/ directories (Unix)
+        'test\\', // Files under test\ directories (Windows)
+        'src/test/', // Maven/Gradle test source root (Unix)
+        'src\\test\\', // Maven/Gradle test source root (Windows)
+      ],
+    },
   },
 };

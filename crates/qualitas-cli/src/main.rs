@@ -620,6 +620,7 @@ fn language_for_extension(file_path: &str) -> Option<String> {
         "rs" => Some("rust".to_string()),
         "py" | "pyi" => Some("python".to_string()),
         "go" => Some("go".to_string()),
+        "java" => Some("java".to_string()),
         _ => None,
     }
 }
