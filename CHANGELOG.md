@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.1
+
+### Patch Changes
+
+- [#38](https://github.com/An631/qualitas/pull/38) [`4356d79`](https://github.com/An631/qualitas/commit/4356d79ea0466c070fa1a3cd7844ffca7da10ce3) Thanks [@An631](https://github.com/An631)! - Fix Go adapter logical LOC counting to walk into statement_list nodes
+
+- [#39](https://github.com/An631/qualitas/pull/39) [`e92a493`](https://github.com/An631/qualitas/commit/e92a493cf2b2b2c993cca551ff6728f1cccf4c96) Thanks [@An631](https://github.com/An631)! - Add pre-push hook to verify package-lock.json is in sync with package.json
+
 ## 0.4.0
 
 ### Minor Changes
