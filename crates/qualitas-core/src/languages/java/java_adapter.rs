@@ -186,9 +186,11 @@ impl<'src> JavaExtractor<'src> {
         Some(build_function_extraction(
             node,
             &body_node,
-            name,
-            param_count,
-            emitter.events,
+            FunctionBuildInfo {
+                name,
+                param_count,
+                events: emitter.events,
+            },
         ))
     }
 
@@ -221,9 +223,11 @@ impl<'src> JavaExtractor<'src> {
         Some(build_function_extraction(
             node,
             &body_node,
-            name,
-            param_count,
-            emitter.events,
+            FunctionBuildInfo {
+                name,
+                param_count,
+                events: emitter.events,
+            },
         ))
     }
 
@@ -328,24 +332,28 @@ impl<'src> JavaExtractor<'src> {
 
 // ─── Shared helpers ──────────────────────────────────────────────────────────
 
-fn build_function_extraction(
-    node: &Node,
-    body_node: &Node,
+struct FunctionBuildInfo {
     name: String,
     param_count: u32,
     events: Vec<QualitasEvent>,
+}
+
+fn build_function_extraction(
+    node: &Node,
+    body_node: &Node,
+    info: FunctionBuildInfo,
 ) -> FunctionExtraction {
     FunctionExtraction {
-        name,
+        name: info.name,
         inferred_name: None,
         byte_start: node.start_byte() as u32,
         byte_end: node.end_byte() as u32,
         start_line: node.start_position().row as u32 + 1,
         end_line: node.end_position().row as u32 + 1,
-        param_count,
+        param_count: info.param_count,
         is_async: false,
         is_generator: false,
-        events,
+        events: info.events,
         loc_override: None,
         statement_count: Some(count_statements(body_node)),
     }
@@ -435,25 +443,19 @@ fn count_nested_in_statement(node: &Node) -> u32 {
     let mut count = 0u32;
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
-        match child.kind() {
-            "block" | "constructor_body" => {
-                count += count_statements_recursive(&child);
-            }
-            "switch_block" => {
-                count += count_statements_in_switch_block(&child);
-            }
-            "catch_clause" | "finally_clause" => {
-                count += count_nested_in_statement(&child);
-            }
-            "if_statement" => {
-                // else-if chain: count the else-if as a statement + recurse
-                count += 1;
-                count += count_nested_in_statement(&child);
-            }
-            _ => {}
-        }
+        count += count_nested_child(&child);
     }
     count
+}
+
+fn count_nested_child(child: &Node) -> u32 {
+    match child.kind() {
+        "block" | "constructor_body" => count_statements_recursive(child),
+        "switch_block" => count_statements_in_switch_block(child),
+        "catch_clause" | "finally_clause" => count_nested_in_statement(child),
+        "if_statement" => 1 + count_nested_in_statement(child),
+        _ => 0,
+    }
 }
 
 fn count_statements_in_switch_block(node: &Node) -> u32 {
@@ -1218,19 +1220,12 @@ impl<'src> JavaBodyEventEmitter<'src> {
     }
 
     fn get_operator_text(&self, node: &Node) -> String {
+        const SKIP: &[&str] = &["(", ")", ",", "{", "}", ";", "[", "]"];
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if !child.is_named() {
                 let text = node_text(&child, self.source);
-                if text != "("
-                    && text != ")"
-                    && text != ","
-                    && text != "{"
-                    && text != "}"
-                    && text != ";"
-                    && text != "["
-                    && text != "]"
-                {
+                if !SKIP.contains(&text) {
                     return text.to_string();
                 }
             }
