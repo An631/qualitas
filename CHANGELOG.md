@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0
+
+### Minor Changes
+
+- [#41](https://github.com/An631/qualitas/pull/41) [`c330afb`](https://github.com/An631/qualitas/commit/c330afb2545a8f8515d73dfa4797d4576aba5f8e) Thanks [@An631](https://github.com/An631)! - Add Java language adapter via tree-sitter-java with full support for all Java control flow, anonymous inner classes, nested classes, lambdas, try-with-resources, and labeled break/continue
+
 ## 0.4.1
 
 ### Patch Changes
