@@ -73,6 +73,8 @@ struct JavaExtractor<'src> {
     classes: Vec<ClassExtraction>,
     imports: Vec<ImportRecord>,
     imported_names: HashSet<String>,
+    /// Indices of wildcard imports in `imports` vec, so we can backfill bindings.
+    wildcard_import_indices: Vec<usize>,
 }
 
 impl<'src> JavaExtractor<'src> {
@@ -82,6 +84,7 @@ impl<'src> JavaExtractor<'src> {
             classes: Vec::new(),
             imports: Vec::new(),
             imported_names: HashSet::new(),
+            wildcard_import_indices: Vec::new(),
         }
     }
 
@@ -96,6 +99,7 @@ impl<'src> JavaExtractor<'src> {
                 _ => {}
             }
         }
+        self.backfill_wildcard_bindings();
     }
 
     fn extract_class(&mut self, node: &Node, outer_name: Option<&str>) {
@@ -180,7 +184,9 @@ impl<'src> JavaExtractor<'src> {
             self.scan_for_anonymous_classes(&body_node, class_name);
         }
 
-        let mut emitter = JavaBodyEventEmitter::new(self.source, &name, &self.imported_names);
+        let has_wildcards = !self.wildcard_import_indices.is_empty();
+        let mut emitter =
+            JavaBodyEventEmitter::new(self.source, &name, &self.imported_names, has_wildcards);
         emitter.visit_block(&body_node);
 
         Some(build_function_extraction(
@@ -217,7 +223,9 @@ impl<'src> JavaExtractor<'src> {
             .unwrap_or(class_name)
             .to_string();
 
-        let mut emitter = JavaBodyEventEmitter::new(self.source, &name, &self.imported_names);
+        let has_wildcards = !self.wildcard_import_indices.is_empty();
+        let mut emitter =
+            JavaBodyEventEmitter::new(self.source, &name, &self.imported_names, has_wildcards);
         emitter.visit_block(&body_node);
 
         Some(build_function_extraction(
@@ -294,7 +302,7 @@ impl<'src> JavaExtractor<'src> {
 
     fn extract_import(&mut self, node: &Node) {
         // import java.util.List;         → binding "List"
-        // import java.util.*;            → binding "util"
+        // import java.util.*;            → wildcard (bindings added later)
         // import static java.lang.Math.abs; → binding "abs"
         let text = node_text(node, self.source).trim().to_string();
 
@@ -308,25 +316,82 @@ impl<'src> JavaExtractor<'src> {
 
         let source = stripped.to_string();
 
-        let binding = if stripped.ends_with(".*") {
-            // Wildcard: import java.util.* → "util"
-            let without_star = stripped.trim_end_matches(".*");
-            without_star
-                .rsplit('.')
-                .next()
-                .unwrap_or(without_star)
-                .to_string()
+        if stripped.ends_with(".*") {
+            // Wildcard import: bindings will be backfilled from type references.
+            // We don't know which types come from this package at parse time.
+            let idx = self.imports.len();
+            self.wildcard_import_indices.push(idx);
+            self.imports.push(ImportRecord {
+                source,
+                is_external: true,
+                names: Vec::new(),
+            });
         } else {
-            // Regular: import java.util.List → "List"
-            stripped.rsplit('.').next().unwrap_or(stripped).to_string()
-        };
+            // Specific import: last segment is the binding
+            let binding = stripped.rsplit('.').next().unwrap_or(stripped).to_string();
+            self.imported_names.insert(binding.clone());
+            self.imports.push(ImportRecord {
+                source,
+                is_external: true,
+                names: vec![binding],
+            });
+        }
+    }
 
-        self.imported_names.insert(binding.clone());
-        self.imports.push(ImportRecord {
-            source,
-            is_external: true,
-            names: vec![binding],
-        });
+    /// After extraction, scan all method events for type-like identifiers
+    /// (capitalized names) and add them as bindings to wildcard imports.
+    /// This enables the DC metric to attribute type usage to the correct package.
+    fn backfill_wildcard_bindings(&mut self) {
+        if self.wildcard_import_indices.is_empty() {
+            return;
+        }
+
+        let type_names = self.collect_type_references();
+        let unresolved = self.filter_unresolved_types(type_names);
+
+        if unresolved.is_empty() {
+            return;
+        }
+
+        for &idx in &self.wildcard_import_indices {
+            self.imports[idx].names.clone_from(&unresolved);
+        }
+        for name in &unresolved {
+            self.imported_names.insert(name.clone());
+        }
+    }
+
+    /// Collect capitalized type names from all method events.
+    fn collect_type_references(&self) -> HashSet<String> {
+        let mut type_names = HashSet::new();
+        for class in &self.classes {
+            for method in &class.methods {
+                collect_type_names_from_events(&method.events, &mut type_names);
+            }
+        }
+        type_names
+    }
+
+    /// Filter out types already covered by specific (non-wildcard) imports.
+    fn filter_unresolved_types(&self, type_names: HashSet<String>) -> Vec<String> {
+        type_names
+            .into_iter()
+            .filter(|n| !self.imported_names.contains(n))
+            .collect()
+    }
+}
+
+fn collect_type_names_from_events(events: &[QualitasEvent], type_names: &mut HashSet<String>) {
+    for event in events {
+        match event {
+            QualitasEvent::IdentReference(id) if is_type_name(&id.name) => {
+                type_names.insert(id.name.clone());
+            }
+            QualitasEvent::ApiCall(call) if is_type_name(&call.object) => {
+                type_names.insert(call.object.clone());
+            }
+            _ => {}
+        }
     }
 }
 
@@ -492,6 +557,11 @@ fn find_child_by_kind<'a>(node: &'a Node<'a>, kind: &str) -> Option<Node<'a>> {
     None
 }
 
+/// Check if a name looks like a Java type name (starts with uppercase).
+fn is_type_name(name: &str) -> bool {
+    name.as_bytes().first().is_some_and(u8::is_ascii_uppercase)
+}
+
 fn node_text<'src>(node: &Node, source: &'src str) -> &'src str {
     &source[node.start_byte()..node.end_byte()]
 }
@@ -507,16 +577,25 @@ struct JavaBodyEventEmitter<'src> {
     fn_name: String,
     source: &'src str,
     imported_names: &'src HashSet<String>,
+    /// When true, treat any capitalized identifier as potentially imported
+    /// (from wildcard imports like `import java.net.*`).
+    has_wildcard_imports: bool,
     nesting_depth: u32,
 }
 
 impl<'src> JavaBodyEventEmitter<'src> {
-    fn new(source: &'src str, fn_name: &str, imported_names: &'src HashSet<String>) -> Self {
+    fn new(
+        source: &'src str,
+        fn_name: &str,
+        imported_names: &'src HashSet<String>,
+        has_wildcard_imports: bool,
+    ) -> Self {
         Self {
             events: Vec::with_capacity(256),
             fn_name: fn_name.to_string(),
             source,
             imported_names,
+            has_wildcard_imports,
             nesting_depth: 0,
         }
     }
@@ -1023,7 +1102,7 @@ impl<'src> JavaBodyEventEmitter<'src> {
             // API call check: obj.method()
             if let Some(obj) = node.child_by_field_name("object") {
                 let obj_name = node_text(&obj, self.source);
-                if obj.kind() == "identifier" && self.imported_names.contains(obj_name) {
+                if obj.kind() == "identifier" && self.is_imported_name(obj_name) {
                     self.events.push(QualitasEvent::ApiCall(ApiCallEvent {
                         object: obj_name.to_string(),
                         method: method_name.to_string(),
@@ -1045,6 +1124,9 @@ impl<'src> JavaBodyEventEmitter<'src> {
     fn visit_object_creation(&mut self, node: &Node) {
         self.emit_operator("new");
 
+        // Emit ApiCall for constructor: new URL(...) → ApiCall("URL", "<init>")
+        self.detect_constructor_api_call(node);
+
         // Visit constructor arguments
         if let Some(args) = node.child_by_field_name("arguments") {
             let mut cursor = args.walk();
@@ -1057,6 +1139,34 @@ impl<'src> JavaBodyEventEmitter<'src> {
         if let Some(class_body) = find_child_by_kind(node, "class_body") {
             self.visit_anonymous_class_body(&class_body);
         }
+    }
+
+    fn detect_constructor_api_call(&mut self, node: &Node) {
+        let Some(type_node) = node.child_by_field_name("type") else {
+            return;
+        };
+        let type_name = self.extract_simple_type_name(&type_node);
+        if self.is_imported_name(&type_name) {
+            self.events.push(QualitasEvent::ApiCall(ApiCallEvent {
+                object: type_name,
+                method: "<init>".to_string(),
+            }));
+        }
+    }
+
+    /// Check if a name could be from an import. For specific imports, checks
+    /// the binding set. For wildcard imports, any capitalized type name qualifies.
+    fn is_imported_name(&self, name: &str) -> bool {
+        self.imported_names.contains(name) || (self.has_wildcard_imports && is_type_name(name))
+    }
+
+    /// Extract the simple type name from a type node, stripping generics.
+    /// `URL` → `"URL"`, `BufferedReader` → `"BufferedReader"`,
+    /// `Comparator<String>` → `"Comparator"`
+    fn extract_simple_type_name(&self, type_node: &Node) -> String {
+        let text = node_text(type_node, self.source);
+        // Strip generic parameters: Comparator<String> → Comparator
+        text.split('<').next().unwrap_or(text).trim().to_string()
     }
 
     fn visit_anonymous_class_body(&mut self, class_body: &Node) {

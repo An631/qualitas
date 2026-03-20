@@ -119,3 +119,115 @@ public class Test {
         "Should have 1 static import",
     );
 }
+
+#[test]
+fn java_wildcard_import_constructor_tracked() {
+    let source = r"
+import java.net.*;
+
+public class Test {
+    public void fetch(String urlStr) throws Exception {
+        URL url = new URL(urlStr);
+    }
+}
+";
+    let report = analyze_source_str(source, "Wildcard.java", &default_options()).unwrap();
+    let method = find_method(&report, "fetch");
+    assert!(
+        method.metrics.dependency_coupling.import_count >= 1,
+        "new URL() should attribute the java.net.* import, got import_count={}",
+        method.metrics.dependency_coupling.import_count,
+    );
+    assert!(
+        method.metrics.dependency_coupling.distinct_api_calls >= 1,
+        "new URL() should count as an API call, got distinct_api_calls={}",
+        method.metrics.dependency_coupling.distinct_api_calls,
+    );
+}
+
+#[test]
+fn java_wildcard_import_static_call_tracked() {
+    let source = r"
+import java.time.*;
+
+public class Test {
+    public void logTime() {
+        LocalDateTime now = LocalDateTime.now();
+    }
+}
+";
+    let report = analyze_source_str(source, "Static.java", &default_options()).unwrap();
+    let method = find_method(&report, "logTime");
+    assert!(
+        method.metrics.dependency_coupling.import_count >= 1,
+        "LocalDateTime.now() should attribute the java.time.* import, got import_count={}",
+        method.metrics.dependency_coupling.import_count,
+    );
+    assert!(
+        method.metrics.dependency_coupling.distinct_api_calls >= 1,
+        "LocalDateTime.now() should count as an API call, got distinct_api_calls={}",
+        method.metrics.dependency_coupling.distinct_api_calls,
+    );
+}
+
+#[test]
+fn java_wildcard_import_multiple_packages_tracked() {
+    let source = r#"
+import java.net.*;
+import java.io.*;
+import java.time.*;
+import java.util.logging.*;
+
+public class Test {
+    public void fetchAndStore(String urlStr) throws Exception {
+        URL url = new URL(urlStr);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("GET");
+        InputStream stream = conn.getInputStream();
+        BufferedReader reader = new BufferedReader(new InputStreamReader(stream));
+        LocalDateTime now = LocalDateTime.now();
+        Logger.getLogger("test").info("done");
+    }
+}
+"#;
+    let report = analyze_source_str(source, "Multi.java", &default_options()).unwrap();
+    let method = find_method(&report, "fetchAndStore");
+
+    // Should have multiple imports attributed (java.net, java.io, java.time, java.util.logging)
+    assert!(
+        method.metrics.dependency_coupling.import_count >= 3,
+        "Should attribute at least 3 wildcard imports, got import_count={}",
+        method.metrics.dependency_coupling.import_count,
+    );
+
+    // Should have multiple distinct API calls (new URL, new BufferedReader, new InputStreamReader,
+    // LocalDateTime.now, Logger.getLogger, etc.)
+    assert!(
+        method.metrics.dependency_coupling.distinct_api_calls >= 3,
+        "Should have at least 3 distinct API calls, got distinct_api_calls={}",
+        method.metrics.dependency_coupling.distinct_api_calls,
+    );
+}
+
+#[test]
+fn java_specific_import_still_works_with_wildcards() {
+    // Mix of specific and wildcard imports
+    let source = r#"
+import java.util.List;
+import java.net.*;
+
+public class Test {
+    public void fetch(String urlStr) throws Exception {
+        List.of("a");
+        URL url = new URL(urlStr);
+    }
+}
+"#;
+    let report = analyze_source_str(source, "Mixed.java", &default_options()).unwrap();
+    let method = find_method(&report, "fetch");
+    assert_eq!(
+        method.metrics.dependency_coupling.import_count, 2,
+        "Should attribute both specific and wildcard imports, got {}",
+        method.metrics.dependency_coupling.import_count,
+    );
+}

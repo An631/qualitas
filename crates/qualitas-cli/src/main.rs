@@ -203,11 +203,16 @@ fn check_file_threshold(
     report.score < threshold
         || report.functions.iter().any(|f| f.score < threshold)
         || report
+            .classes
+            .iter()
+            .any(|c| c.methods.iter().any(|m| m.score < threshold))
+        || report
             .file_scope
             .as_ref()
             .is_some_and(|fs| fs.score < threshold)
         || has_flags_at_severity(
             &report.functions,
+            &report.classes,
             report.file_scope.as_deref(),
             fail_on_flags,
         )
@@ -221,8 +226,16 @@ fn check_project_threshold(
     report.score < threshold
         || report.files.iter().any(|f| {
             f.functions.iter().any(|func| func.score < threshold)
+                || f.classes
+                    .iter()
+                    .any(|c| c.methods.iter().any(|m| m.score < threshold))
                 || f.file_scope.as_ref().is_some_and(|fs| fs.score < threshold)
-                || has_flags_at_severity(&f.functions, f.file_scope.as_deref(), fail_on_flags)
+                || has_flags_at_severity(
+                    &f.functions,
+                    &f.classes,
+                    f.file_scope.as_deref(),
+                    fail_on_flags,
+                )
         })
 }
 
@@ -454,6 +467,7 @@ fn fn_has_flags(f: &FunctionQualityReport, level: &str) -> bool {
 
 fn has_flags_at_severity(
     functions: &[FunctionQualityReport],
+    classes: &[qualitas_core::types::ClassQualityReport],
     file_scope: Option<&FunctionQualityReport>,
     fail_on_flags: Option<&str>,
 ) -> bool {
@@ -461,6 +475,9 @@ fn has_flags_at_severity(
         return false;
     };
     functions.iter().any(|f| fn_has_flags(f, level))
+        || classes
+            .iter()
+            .any(|c| c.methods.iter().any(|m| fn_has_flags(m, level)))
         || file_scope.is_some_and(|fs| fn_has_flags(fs, level))
 }
 
