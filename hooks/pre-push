@@ -2,30 +2,30 @@
 # Pre-push hook: run full verify before allowing push.
 # This ensures tests, lint, formatting, and quality checks all pass.
 
-echo "pre-push: checking package-lock.json is in sync with origin/main package.json..."
+echo "pre-push: checking package-lock.json is in sync..."
 git fetch origin main --quiet 2>/dev/null
 
-# Save current package.json, temporarily replace with origin/main's version
-cp package.json package.json.branch-backup
-if git show origin/main:package.json > package.json.main 2>/dev/null; then
-  cp package.json.main package.json
-  npm install --package-lock-only --omit=optional 2>/dev/null
-  # Restore branch package.json before checking diff
-  cp package.json.branch-backup package.json
-  rm -f package.json.main package.json.branch-backup
-else
-  # origin/main not available (e.g. first push) — fall back to local check
-  rm -f package.json.main package.json.branch-backup
-  npm install --package-lock-only --omit=optional 2>/dev/null
-fi
-
+# Check 1: lockfile matches the branch's own package.json
+npm install --package-lock-only --omit=optional 2>/dev/null
 if ! git diff --quiet package-lock.json; then
   echo ""
-  echo "pre-push: package-lock.json is out of sync with origin/main's package.json."
+  echo "pre-push: package-lock.json is out of sync with package.json."
   echo "The lockfile has been updated. Please stage and commit it, then push again."
   exit 1
 fi
-echo "pre-push: package-lock.json is in sync with origin/main."
+
+# Check 2: if origin/main has dependency changes not yet in our branch,
+# warn so the developer knows to rebase/merge.
+if git show origin/main:package.json > /dev/null 2>&1; then
+  MAIN_DEPS=$(git show origin/main:package.json | grep -A9999 '"dependencies"' | grep -B9999 '^\s*}' | head -n -1 | tail -n +2 | sort)
+  LOCAL_DEPS=$(grep -A9999 '"dependencies"' package.json | grep -B9999 '^\s*}' | head -n -1 | tail -n +2 | sort)
+  if [ "$MAIN_DEPS" != "$LOCAL_DEPS" ]; then
+    echo "pre-push: note — origin/main has different dependencies than your branch."
+    echo "  Consider rebasing onto main to pick up dependency changes."
+  fi
+fi
+
+echo "pre-push: package-lock.json is in sync."
 echo ""
 
 echo "Ensuring you have a changeset file ready for your PR..."

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::JavaAdapter;
 use crate::ir::events::QualitasEvent;
 use crate::ir::language::LanguageAdapter;
@@ -318,5 +320,59 @@ public class Outer {
 }
 ",
         "Outer.java",
+    );
+}
+
+#[test]
+fn java_excessive_returns_flagged_when_enabled() {
+    let source = r#"
+public class HttpStatus {
+    public String httpStatusMessage(int code) {
+        if (code == 200) return "OK";
+        if (code == 201) return "Created";
+        if (code == 204) return "No Content";
+        if (code == 301) return "Moved Permanently";
+        if (code == 302) return "Found";
+        if (code == 400) return "Bad Request";
+        if (code == 401) return "Unauthorized";
+        if (code == 403) return "Forbidden";
+        if (code == 404) return "Not Found";
+        if (code == 405) return "Method Not Allowed";
+        if (code == 500) return "Internal Server Error";
+        if (code == 502) return "Bad Gateway";
+        if (code == 503) return "Service Unavailable";
+        return "Unknown";
+    }
+}
+"#;
+    // Enable excessiveReturns flag (disabled by default)
+    let mut overrides = HashMap::new();
+    overrides.insert(
+        "excessiveReturns".to_string(),
+        crate::types::FlagConfig::Enabled(true),
+    );
+    let opts = crate::types::AnalysisOptions {
+        flag_overrides: Some(overrides),
+        ..Default::default()
+    };
+
+    let report = crate::analyzer::analyze_source_str(source, "HttpStatus.java", &opts).unwrap();
+    let method = report
+        .classes
+        .iter()
+        .flat_map(|c| &c.methods)
+        .find(|m| m.name == "httpStatusMessage")
+        .expect("Expected httpStatusMessage method");
+
+    let has_excessive_returns = method
+        .flags
+        .iter()
+        .any(|f| f.flag_type == crate::types::FlagType::ExcessiveReturns);
+    assert!(
+        has_excessive_returns,
+        "httpStatusMessage has 14 returns (threshold: 3 warn / 4 error) but excessiveReturns did not fire. \
+         return_count={}, flags={:?}",
+        method.metrics.structural.return_count,
+        method.flags,
     );
 }
