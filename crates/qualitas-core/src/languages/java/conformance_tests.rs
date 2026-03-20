@@ -351,8 +351,10 @@ public class HttpStatus {
         "excessiveReturns".to_string(),
         crate::types::FlagConfig::Enabled(true),
     );
-    let mut opts = crate::types::AnalysisOptions::default();
-    opts.flag_overrides = Some(overrides);
+    let opts = crate::types::AnalysisOptions {
+        flag_overrides: Some(overrides),
+        ..Default::default()
+    };
 
     let report = crate::analyzer::analyze_source_str(source, "HttpStatus.java", &opts).unwrap();
     let method = report
