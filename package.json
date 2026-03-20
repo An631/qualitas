@@ -31,7 +31,7 @@
     "build:debug": "napi build --platform --js qualitas_napi.js --dts qualitas_napi.d.ts -p qualitas-napi -o .",
     "build:ts": "tsc --project tsconfig.build.json",
     "prepublishOnly": "npm run build:ts",
-    "verify": "npm run test && npm run lint && npm run format:check && npm run quality:detail",
+    "verify": "npm run test && npm run lint && npm run format:check && npm run quality:flagged",
     "test": "npm run test:rs && npm run test:ts",
     "test:ts": "jest",
     "test:rs": "cargo test -p qualitas-core",
