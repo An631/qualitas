@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.1
+
+### Patch Changes
+
+- [#45](https://github.com/An631/qualitas/pull/45) [`2b5230b`](https://github.com/An631/qualitas/commit/2b5230b853e1499c9d52cad66aab25fc93c284e4) Thanks [@An631](https://github.com/An631)! - Fix Java dependency coupling detection for wildcard imports and constructor calls
+
+- [#43](https://github.com/An631/qualitas/pull/43) [`cddc313`](https://github.com/An631/qualitas/commit/cddc313c7b8a85fd411fd0ebc6591d169a9a1408) Thanks [@An631](https://github.com/An631)! - Fix Java adapter to handle braceless if/for/while bodies (e.g. `if (cond) return x;`)
+
 ## 0.5.0
 
 ### Minor Changes
