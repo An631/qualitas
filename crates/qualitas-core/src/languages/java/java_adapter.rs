@@ -531,6 +531,16 @@ impl<'src> JavaBodyEventEmitter<'src> {
         }
     }
 
+    /// Visit a node that may be a block or a single statement.
+    /// Java allows `if (cond) return x;` without braces.
+    fn visit_block_or_statement(&mut self, node: &Node) {
+        if node.kind() == "block" {
+            self.visit_block(node);
+        } else {
+            self.visit_statement(node);
+        }
+    }
+
     fn visit_statement(&mut self, node: &Node) {
         match node.kind() {
             "if_statement" => self.visit_if(node),
@@ -585,14 +595,14 @@ impl<'src> JavaBodyEventEmitter<'src> {
         self.nesting_depth += 1;
 
         if let Some(body) = node.child_by_field_name("consequence") {
-            self.visit_block(&body);
+            self.visit_block_or_statement(&body);
         }
 
         if let Some(alt) = node.child_by_field_name("alternative") {
             if alt.kind() == "if_statement" {
                 self.visit_if(&alt);
             } else {
-                self.visit_block(&alt);
+                self.visit_block_or_statement(&alt);
             }
         }
 
@@ -620,7 +630,7 @@ impl<'src> JavaBodyEventEmitter<'src> {
 
         self.emit_nesting_block(|s| {
             if let Some(body) = node.child_by_field_name("body") {
-                s.visit_block(&body);
+                s.visit_block_or_statement(&body);
             }
         });
     }
@@ -644,7 +654,7 @@ impl<'src> JavaBodyEventEmitter<'src> {
 
         self.emit_nesting_block(|s| {
             if let Some(body) = node.child_by_field_name("body") {
-                s.visit_block(&body);
+                s.visit_block_or_statement(&body);
             }
         });
     }
@@ -663,7 +673,7 @@ impl<'src> JavaBodyEventEmitter<'src> {
 
         self.emit_nesting_block(|s| {
             if let Some(body) = node.child_by_field_name("body") {
-                s.visit_block(&body);
+                s.visit_block_or_statement(&body);
             }
         });
     }
@@ -678,7 +688,7 @@ impl<'src> JavaBodyEventEmitter<'src> {
 
         self.emit_nesting_block(|s| {
             if let Some(body) = node.child_by_field_name("body") {
-                s.visit_block(&body);
+                s.visit_block_or_statement(&body);
             }
         });
 
@@ -768,7 +778,7 @@ impl<'src> JavaBodyEventEmitter<'src> {
 
         self.emit_nesting_block(|s| {
             if let Some(body) = node.child_by_field_name("body") {
-                s.visit_block(&body);
+                s.visit_block_or_statement(&body);
             }
         });
 
@@ -802,7 +812,7 @@ impl<'src> JavaBodyEventEmitter<'src> {
 
         self.emit_nesting_block(|s| {
             if let Some(body) = node.child_by_field_name("body") {
-                s.visit_block(&body);
+                s.visit_block_or_statement(&body);
             }
         });
     }
