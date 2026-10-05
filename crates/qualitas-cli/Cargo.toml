@@ -1,6 +1,6 @@
 [package]
 name = "qualitas-cli"
-version = "0.1.0"
+version = "0.5.1"
 edition = "2021"
 description = "Standalone CLI for qualitas — code quality measurement without Node.js"
 
