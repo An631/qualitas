@@ -257,7 +257,7 @@ Options:
   -f, --format <format>         Output format (default: text)
                                   text | compact | detail | flagged | json | markdown | summary
   -o, --output <path>           Output file for report formats (json, markdown)
-  -c, --config <path>           Path to qualitas.config.js (overrides auto-detection)
+  -c, --config <path>           Path to a Qualitas config file (overrides auto-detection)
   -p, --profile <name>          Weight profile: default | cc-focused | data-focused | strict
   -t, --threshold <n>           Exit code 1 if any score is below this (default: 65)
   --fail-on-flags <level>       Exit code 1 if any function has flags: warn | error
@@ -603,13 +603,24 @@ Language adapters parse source code and emit a stream of `QualitasEvent` values 
 
 ## Configuration
 
-Create a `qualitas.config.js` in your project root. All fields are optional — CLI flags take priority.
+Create a `qualitas.config.js`, `qualitas.config.cjs`, or `qualitas.config.mjs` in your project root. All fields are optional — CLI flags take priority. CommonJS configs can use `.cjs`; ESM configs can use `.mjs` or `.js` in a `"type": "module"` package. ESM configs may use a default export.
 
 Config file search order:
 
 1. Explicit `-c` / `--config` path (if provided)
-2. Walk up from the analyzed directory looking for `qualitas.config.js`
+2. Walk up from the analyzed directory looking for `qualitas.config.js`, `.cjs`, or `.mjs`
 3. Look next to the `qualitas` executable
+
+If a config file is found but cannot be loaded or parsed, Qualitas reports the error and exits with code 2 instead of silently using defaults.
+
+The example below uses CommonJS. Save it as `qualitas.config.cjs` (or use a CommonJS package); ESM configs can use a default export, for example:
+
+```javascript
+export default {
+  threshold: 80,
+  exclude: ['node_modules', 'dist'],
+};
+```
 
 ```javascript
 module.exports = {
@@ -623,7 +634,7 @@ module.exports = {
   profile: 'default',
 
   // Directories/files to exclude from analysis.
-  // Only .git and qualitas.config.js are excluded by default — configure all others here.
+  // Only .git and Qualitas config files are excluded by default — configure all others here.
   exclude: ['node_modules', 'dist', 'build', 'coverage', 'target'],
 
   // Per-flag configuration (enable/disable, custom thresholds).

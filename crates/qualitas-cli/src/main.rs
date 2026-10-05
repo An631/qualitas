@@ -63,7 +63,7 @@ struct Cli {
     #[arg(short = 'o', long)]
     output: Option<String>,
 
-    /// Path to qualitas.config.js. Overrides automatic config file search.
+    /// Path to a Qualitas config file. Overrides automatic config file search.
     #[arg(short = 'c', long)]
     config: Option<String>,
 }
@@ -71,7 +71,12 @@ struct Cli {
 // ─── Default file-collection settings ─────────────────────────────────────────
 
 /// Universally safe excludes — these are never source code worth analyzing.
-const DEFAULT_EXCLUDE: &[&str] = &[".git", "qualitas.config.js"];
+const DEFAULT_EXCLUDE: &[&str] = &[
+    ".git",
+    "qualitas.config.js",
+    "qualitas.config.cjs",
+    "qualitas.config.mjs",
+];
 
 /// Skip files larger than 1 MB — these are almost certainly bundled/generated.
 const MAX_FILE_SIZE: u64 = 1_024 * 1_024;
@@ -243,7 +248,13 @@ fn check_project_threshold(
 
 fn main() {
     let cli = Cli::parse();
-    let config = config::load_config(&cli.path, cli.config.as_deref());
+    let config = match config::load_config(&cli.path, cli.config.as_deref()) {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("qualitas error: {error}");
+            process::exit(2);
+        }
+    };
     validate_path(&cli.path);
 
     match run(&cli, &config) {
@@ -557,11 +568,12 @@ fn matches_test_pattern(path: &Path, patterns: Option<&Vec<String>>) -> bool {
     let Some(patterns) = patterns else {
         return false;
     };
-    let full_path = path.to_string_lossy();
+    let full_path = path.to_string_lossy().replace('\\', "/");
     let name = path.file_name().unwrap_or_default().to_string_lossy();
-    patterns
-        .iter()
-        .any(|p| name.contains(p.as_str()) || full_path.contains(p.as_str()))
+    patterns.iter().any(|pattern| {
+        let normalized_pattern = pattern.replace('\\', "/");
+        name.contains(&normalized_pattern) || full_path.contains(&normalized_pattern)
+    })
 }
 
 // ─── Adapter extensions and test patterns ──────────────────────────────────
@@ -740,5 +752,30 @@ fn build_project_report(
         summary: build_summary(&file_reports, &all_fns, score),
         worst_functions: find_worst_functions(&all_fns),
         files: file_reports,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::matches_test_pattern;
+
+    #[test]
+    fn matches_path_patterns_with_windows_separators() {
+        let patterns = vec!["tests/".to_string()];
+        assert!(matches_test_pattern(
+            Path::new(r"supabase\tests\e2e\otp_flow.py"),
+            Some(&patterns)
+        ));
+    }
+
+    #[test]
+    fn matches_windows_separators_in_patterns() {
+        let patterns = vec![r"tests\".to_string()];
+        assert!(matches_test_pattern(
+            Path::new("supabase/tests/e2e/otp_flow.py"),
+            Some(&patterns)
+        ));
     }
 }
