@@ -577,7 +577,7 @@ mod tests {
         let mut metrics = zero_metrics();
         metrics.cognitive_flow.score = 13; // CFC_WARNING = 13
         let flags = generate_flags(&metrics, None);
-        assert!(!flags.is_empty(), "Expected at least one flag for CFC=13",);
+        assert!(!flags.is_empty(), "Expected at least one flag for CFC=13");
         let cfc_flag = flags
             .iter()
             .find(|f| f.flag_type == FlagType::HighCognitiveFlow)

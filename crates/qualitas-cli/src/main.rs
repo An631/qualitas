@@ -391,7 +391,7 @@ fn print_perf_summary(timings: &HashMap<String, FolderTiming>) {
     }
 
     let mut sorted: Vec<_> = timings.iter().collect();
-    sorted.sort_by(|a, b| b.1.total_ms.cmp(&a.1.total_ms));
+    sorted.sort_by_key(|(_, timing)| std::cmp::Reverse(timing.total_ms));
 
     eprintln!("\nqualitas: performance summary (slowest folders):");
     for (dir, timing) in sorted.iter().take(5) {
