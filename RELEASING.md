@@ -33,7 +33,7 @@ with content like:
 
 ```markdown
 ---
-"qualitas": minor
+'qualitas': minor
 ---
 
 Added match arm CFC discount to reduce false positives on exhaustive match statements
@@ -62,25 +62,15 @@ Review the auto-generated PR. Check that:
 
 Merge it.
 
-### Step 4: Automatic npm publish
+### Step 4: Automatic build and publish
 
 When the version PR is merged to `main`, the `release.yml` action runs again.
-This time it finds **no pending changesets** but detects that the version in
-`package.json` is **newer than what's on npm**, so it runs `changeset publish`
-which publishes to npm.
-
-### Step 5: Tag and build binaries (optional)
-
-After the npm publish, create a git tag for the GitHub Release:
-
-```bash
-git pull origin main
-git tag v0.2.0
-git push origin v0.2.0
-```
-
-This triggers `publish.yml` which builds native CLI binaries for all 5 platforms
-and creates a GitHub Release with downloadable archives.
+With no pending changesets, it checks whether this package version is already
+on npm. If not, it builds the native addon and standalone CLI for all supported
+platforms, then publishes the platform packages first and the root package last.
+The workflow injects the exact platform package versions into the root
+`optionalDependencies` immediately before publishing it. It then creates the
+`v<version>` tag and GitHub Release.
 
 ## Quick Reference
 
@@ -99,16 +89,15 @@ git push origin main
 
 # 4. Wait for the "chore: version packages" PR to appear
 # 5. Review and merge it
-# 6. npm publish happens automatically
-# 7. Optionally tag for GitHub Release
-git pull && git tag v<new-version> && git push origin v<new-version>
+# 6. The release workflow builds and publishes bindings, then the root package
+# 7. The workflow creates the version tag and GitHub Release
 ```
 
 ## What If I Forget to Add a Changeset?
 
 - The CI `changeset` job on PRs will warn you
 - If you push to main without a changeset, nothing happens — no version bump,
-  no publish. Your changes are on main but not released.
+  no version PR or publish. Your changes are on main but not released.
 - Just run `npx changeset` later, commit, and push. The version PR will appear.
 
 ## What If I Need to Publish Without Changes?
@@ -124,26 +113,28 @@ git push origin main
 
 ## Versioning Guide
 
-| Change Type | Bump | Example |
-|-------------|------|---------|
-| Bug fix, typo, internal refactor | `patch` | 0.1.0 → 0.1.1 |
-| New feature, new flag, new metric | `minor` | 0.1.0 → 0.2.0 |
+| Change Type                          | Bump    | Example       |
+| ------------------------------------ | ------- | ------------- |
+| Bug fix, typo, internal refactor     | `patch` | 0.1.0 → 0.1.1 |
+| New feature, new flag, new metric    | `minor` | 0.1.0 → 0.2.0 |
 | Breaking API change, removed feature | `major` | 0.1.0 → 1.0.0 |
 
 ## Workflow Files
 
-| File | Trigger | Purpose |
-|------|---------|---------|
-| `ci.yml` | Push/PR to main | Lint, test, quality gate |
-| `release.yml` | Push to main | Create version PR or publish to npm |
-| `publish.yml` | Git tag `v*` | Build cross-platform binaries, GitHub Release |
+| File          | Trigger         | Purpose                                                                                                      |
+| ------------- | --------------- | ------------------------------------------------------------------------------------------------------------ |
+| `ci.yml`      | Push/PR to main | Lint, test, quality gate                                                                                     |
+| `release.yml` | Push to main    | Create version PR; otherwise build binaries, publish platform packages, then root package and GitHub Release |
 
 ## Platform Packages
 
-The `@qualitas/binding-*` platform packages (containing native `.node` binaries)
-are published separately via the `publish.yml` workflow. The root `qualitas`
-package declares them as `optionalDependencies` — npm installs the correct one
-for the user's platform automatically.
+The `@qualitas/binding-*` platform package manifests live under `npm/*`. They
+are not dependencies in the checked-in root `package.json` or lockfile, so
+`npm ci` can validate a stable lockfile before and after a release. During a
+release, `scripts/publish-release.sh` publishes the five platform packages
+first, injects their exact versions as the root package's `optionalDependencies`,
+and publishes the root package last. This ordering ensures every binding the
+published root refers to is already available on npm.
 
 ## Troubleshooting
 
@@ -151,13 +142,15 @@ for the user's platform automatically.
 You pushed without a changeset file. Run `npx changeset`, commit, and push.
 
 **"Version X is already published on npm":**
-The version in `package.json` matches what's on npm. You need a changeset to
-bump the version first.
+The release workflow skips versions already published with a GitHub Release.
+If a release was interrupted after publishing, rerun the workflow; it resumes
+the remaining steps and skips package versions already on npm.
 
 **"ENEEDAUTH" error:**
 The `NPM_TOKEN` secret is missing or expired. Update it in GitHub repo Settings
 → Secrets → Actions.
 
 **Platform package not found for my OS:**
-The `@qualitas/binding-*` packages need to be published from CI. Push a `v*` tag
-to trigger the build + publish workflow.
+The release publishes the root package only after its platform binding packages
+are available. If installation still fails, check the `build-native` and
+`publish` jobs in the `release.yml` run for that version.

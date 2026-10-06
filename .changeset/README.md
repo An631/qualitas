@@ -8,9 +8,7 @@ Before merging a PR that changes user-facing behavior, run:
 npx changeset
 ```
 
-This creates a change description file. At release time, run:
-
-```bash
-npx changeset version   # consumes changesets, bumps version, updates CHANGELOG.md
-npx changeset publish   # publishes to npm
-```
+This creates a change description file. The `release.yml` workflow consumes changesets and creates the version PR. Once
+that PR is merged, it builds and publishes the platform binding packages first,
+adds their exact versions to the root package manifest, and publishes the root
+package last. You do not need to run the publish command manually.
