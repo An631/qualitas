@@ -7,16 +7,17 @@ on:
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
-  # ─── Step 1: Version PR or publish root package ──────────────────────────
+  # ─── Step 1: Open or update the version PR ───────────────────────────────
+  # No `publish:` here on purpose: publishing happens below, bindings first and the
+  # root last, so the lockfile never has to name packages that are not on npm yet.
   changesets:
     name: Changesets
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
-      id-token: write
     outputs:
-      published: ${{ steps.changesets.outputs.published }}
+      hasChangesets: ${{ steps.changesets.outputs.hasChangesets }}
     steps:
       - uses: actions/checkout@v4
 
@@ -24,16 +25,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
-
-      - name: Upgrade npm for trusted publishing
-        run: npm install -g npm@latest
-
-      - name: Configure npm
-        run: |
-          npm config set provenance true
-          npm config set access public
 
       - name: Install dependencies
         run: npm ci --omit=optional
@@ -45,15 +37,56 @@ jobs:
           title: 'chore: version packages'
           commit: 'chore: version packages'
           version: bash scripts/version.sh
-          publish: npm run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ─── Step 2: Build native binaries (only after root was published) ──────
+  # ─── Step 2: Is the version in package.json already on npm? ──────────────
+  # With no pending changesets (the version PR was merged, or the push had none),
+  # publish only if this version is not on npm yet.
+  check-version:
+    name: Check version
+    needs: changesets
+    if: needs.changesets.outputs.hasChangesets != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      publish: ${{ steps.check.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Is this version on npm?
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if out=$(npm view "qualitas@${VERSION}" version 2>&1); then
+            if gh release view "v${VERSION}" --json tagName >/dev/null 2>&1; then
+              echo "qualitas@${VERSION} and its GitHub release already exist; nothing to publish"
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "qualitas@${VERSION} is on npm, but its GitHub release is missing; resuming release"
+              echo "publish=true" >> "$GITHUB_OUTPUT"
+            fi
+          elif echo "$out" | grep -q "E404"; then
+            echo "qualitas@${VERSION} is not on npm yet; publishing"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "$out"
+            exit 1
+          fi
+
+  # ─── Step 3: Build native binaries ───────────────────────────────────────
   build-native:
     name: Build napi ${{ matrix.settings.name }}
-    needs: changesets
-    if: needs.changesets.outputs.published == 'true'
+    needs: check-version
+    if: needs.check-version.outputs.publish == 'true'
     runs-on: ${{ matrix.settings.host }}
     strategy:
       fail-fast: false
@@ -115,11 +148,11 @@ jobs:
           path: '*.node'
           if-no-files-found: error
 
-  # ─── Step 3: Build standalone CLI binaries ───────────────────────────────
+  # ─── Step 4: Build standalone CLI binaries ───────────────────────────────
   build-cli:
     name: Build CLI ${{ matrix.settings.name }}
-    needs: changesets
-    if: needs.changesets.outputs.published == 'true'
+    needs: check-version
+    if: needs.check-version.outputs.publish == 'true'
     runs-on: ${{ matrix.settings.host }}
     strategy:
       fail-fast: false
@@ -194,11 +227,11 @@ jobs:
           path: ${{ matrix.settings.archive }}
           if-no-files-found: error
 
-  # ─── Step 4: Publish platform packages + GitHub Release ──────────────────
-  publish-platform:
-    name: Publish platform packages & GitHub Release
-    needs: [changesets, build-native, build-cli]
-    if: needs.changesets.outputs.published == 'true'
+  # ─── Step 5: Publish platform packages, then the root, then the GitHub Release ─
+  publish:
+    name: Publish packages & GitHub Release
+    needs: [check-version, build-native, build-cli]
+    if: needs.check-version.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -219,6 +252,9 @@ jobs:
         run: |
           npm config set provenance true
           npm config set access public
+
+      - name: Install dependencies
+        run: npm ci --omit=optional
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -264,26 +300,9 @@ jobs:
             ls -la "$target_dir"/qualitas*
           done
 
-      - name: Publish platform packages
-        run: |
-          FAILED=0
-          for pkg_dir in npm/*/; do
-            if [ -f "$pkg_dir/package.json" ]; then
-              echo "Publishing $pkg_dir..."
-              if ! npm publish "./$pkg_dir" --provenance --access public 2>&1 | tee /tmp/npm-out.log; then
-                if grep -q "EPUBLISHCONFLICT\|You cannot publish over" /tmp/npm-out.log; then
-                  echo "Skipping $pkg_dir (already published)"
-                else
-                  echo "ERROR: Failed to publish $pkg_dir"
-                  FAILED=1
-                fi
-              fi
-            fi
-          done
-          if [ "$FAILED" -eq 1 ]; then
-            echo "One or more platform packages failed to publish"
-            exit 1
-          fi
+      # Platform packages first, then the root with optionalDependencies injected.
+      - name: Publish packages
+        run: bash scripts/publish-release.sh
 
       - name: Get version
         id: version
