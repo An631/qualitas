@@ -50,8 +50,7 @@
     "format:check": "cargo fmt --check && prettier --check \"js/**/*.ts\" \"tests/**/*.ts\"",
     "changeset": "changeset && git add .changeset/* && git commit .changeset/*.md -m \"Added changeset file\"",
     "changeset:check": "changeset status --since=origin/main",
-    "version:bump": "changeset version",
-    "release": "changeset publish"
+    "version:bump": "changeset version"
   },
   "files": [
     "dist",
@@ -88,13 +87,6 @@
     "prettier": "^3.8.1",
     "ts-jest": "^29.0.0",
     "typescript": "^5.4.0"
-  },
-  "optionalDependencies": {
-    "@qualitas/binding-darwin-arm64": "^0.5.2",
-    "@qualitas/binding-darwin-x64": "^0.5.2",
-    "@qualitas/binding-linux-arm64-gnu": "^0.5.2",
-    "@qualitas/binding-linux-x64-gnu": "^0.5.2",
-    "@qualitas/binding-win32-x64-msvc": "^0.5.2"
   },
   "engines": {
     "node": ">=18.0.0"

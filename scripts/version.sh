@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Called by changesets/action during the version step.
 # 1. Bump root package version via changesets
-# 2. Sync Cargo CLI and platform package versions
+# 2. Sync Cargo CLI and platform package versions (npm/*)
 # 3. Update package-lock.json
 
 npx changeset version
@@ -39,37 +39,7 @@ for pkg in npm/*/package.json; do
   "
 done
 
-# Sync optionalDependencies ranges in root package.json to ^<new-version>
-node -e "
-  const fs = require('fs');
-  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-  if (pkg.optionalDependencies) {
-    for (const name of Object.keys(pkg.optionalDependencies)) {
-      pkg.optionalDependencies[name] = '^$VERSION';
-    }
-    fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-  }
-"
-
-npm install --omit=optional --package-lock-only
-
-# The new platform bindings are published after this PR merges, so npm cannot resolve
-# them yet and may drop their lockfile entries. Keep version-less placeholders so
-# `npm ci` still works until the bindings are published.
-node -e '
-  const fs = require("fs");
-  const lock = JSON.parse(fs.readFileSync("package-lock.json", "utf8"));
-  const names = Object.keys(lock.packages[""].optionalDependencies || {}).map(
-    (n) => "node_modules/" + n
-  );
-  const out = {};
-  for (const [key, val] of Object.entries(lock.packages)) {
-    if (key === "node_modules/@sinclair/typebox") {
-      for (const n of names) out[n] = { optional: true };
-    }
-    if (!names.includes(key)) out[key] = val;
-  }
-  for (const n of names) out[n] = out[n] || { optional: true };
-  lock.packages = out;
-  fs.writeFileSync("package-lock.json", JSON.stringify(lock, null, 2) + "\n");
-'
+# The platform bindings are not part of the dependency graph in this repo (the root
+# gets its optionalDependencies injected at publish time by scripts/publish-release.sh),
+# so the lockfile only needs the new root version.
+npm install --package-lock-only
