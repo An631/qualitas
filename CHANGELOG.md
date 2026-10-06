@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.3
+
+### Patch Changes
+
+- [#52](https://github.com/An631/qualitas/pull/52) [`d134aeb`](https://github.com/An631/qualitas/commit/d134aeb23c29148d70c19da20220f13f0906a0ec) Thanks [@An631](https://github.com/An631)! - Fail with exit code 2 and a hint when a config file exports nothing (for example `module.exports = {...}` in a `"type": "module"` package) instead of silently using defaults. Fixes [#46](https://github.com/An631/qualitas/issues/46).
+
 ## 0.5.2
 
 ### Patch Changes
