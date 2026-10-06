@@ -52,3 +52,24 @@ node -e "
 "
 
 npm install --omit=optional --package-lock-only
+
+# The new platform bindings are published after this PR merges, so npm cannot resolve
+# them yet and may drop their lockfile entries. Keep version-less placeholders so
+# `npm ci` still works until the bindings are published.
+node -e '
+  const fs = require("fs");
+  const lock = JSON.parse(fs.readFileSync("package-lock.json", "utf8"));
+  const names = Object.keys(lock.packages[""].optionalDependencies || {}).map(
+    (n) => "node_modules/" + n
+  );
+  const out = {};
+  for (const [key, val] of Object.entries(lock.packages)) {
+    if (key === "node_modules/@sinclair/typebox") {
+      for (const n of names) out[n] = { optional: true };
+    }
+    if (!names.includes(key)) out[key] = val;
+  }
+  for (const n of names) out[n] = out[n] || { optional: true };
+  lock.packages = out;
+  fs.writeFileSync("package-lock.json", JSON.stringify(lock, null, 2) + "\n");
+'
