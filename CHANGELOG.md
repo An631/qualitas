@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.2
+
+### Patch Changes
+
+- [#49](https://github.com/An631/qualitas/pull/49) [`ae5a10f`](https://github.com/An631/qualitas/commit/ae5a10fddab7e9ac6f7b82d395268d4582fd4d48) Thanks [@An631](https://github.com/An631)! - Fix CLI version reporting, Windows test-pattern matching, and config loading errors.
+
 ## 0.5.1
 
 ### Patch Changes
