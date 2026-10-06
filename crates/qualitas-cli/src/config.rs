@@ -85,10 +85,17 @@ fn evaluate_config(config_path: &Path) -> Result<QualitasConfig, String> {
         )
     })?;
 
-    let script = r"
+    let script = r#"
 import('node:url').then(({ pathToFileURL }) =>
   import(pathToFileURL(process.argv[1]).href)
 ).then((module) => {
+  if (Object.keys(module).length === 0) {
+    throw new Error(
+      'Config exported nothing. In a "type": "module" package, use ' +
+      '`export default { ... }` or rename the file to qualitas.config.cjs ' +
+      'if it uses `module.exports`.'
+    );
+  }
   const config = Object.hasOwn(module, 'default') ? module.default : module;
   if (!config || typeof config !== 'object' || Array.isArray(config)) {
     throw new Error('Config must export an object');
@@ -100,7 +107,7 @@ import('node:url').then(({ pathToFileURL }) =>
   console.error(error.stack || error);
   process.exitCode = 1;
 });
-";
+"#;
 
     let output = Command::new("node")
         .args(["-e", script])
@@ -242,6 +249,29 @@ mod tests {
         let error = evaluate_config(&config_path).unwrap_err();
         assert!(error.contains("failed to load config file"));
         assert!(error.contains("qualitas.config.mjs"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn commonjs_exports_in_esm_package_are_an_error() {
+        let dir = temp_dir();
+        fs::write(dir.join("package.json"), r#"{"type":"module"}"#).unwrap();
+        let config_path = dir.join("qualitas.config.js");
+        fs::write(&config_path, "module.exports = { threshold: 90 };").unwrap();
+
+        let error = evaluate_config(&config_path).unwrap_err();
+        assert!(error.contains("Config exported nothing"));
+        assert!(error.contains("qualitas.config.cjs"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn explicit_empty_default_export_is_allowed() {
+        let dir = temp_dir();
+        let config_path = dir.join("qualitas.config.mjs");
+        fs::write(&config_path, "export default {};").unwrap();
+
+        assert!(evaluate_config(&config_path).is_ok());
         fs::remove_dir_all(dir).unwrap();
     }
 
