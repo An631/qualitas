@@ -140,12 +140,84 @@ import('node:url').then(({ pathToFileURL }) =>
                 config_path.display()
             )
         })?;
+    for warning in config_warnings(json) {
+        eprintln!("warning: {}: {warning}", config_path.display());
+    }
     serde_json::from_str(json).map_err(|error| {
         format!(
             "failed to parse config file {}: {error}",
             config_path.display()
         )
     })
+}
+
+const KNOWN_KEYS: [&str; 10] = [
+    "threshold",
+    "profile",
+    "format",
+    "includeTests",
+    "exclude",
+    "extensions",
+    "weights",
+    "flags",
+    "languages",
+    "failOnFlags",
+];
+
+/// Describe config problems that would otherwise be silently ignored:
+/// unrecognised keys (with a suggestion) and configs with no recognised keys.
+fn config_warnings(json: &str) -> Vec<String> {
+    let Ok(serde_json::Value::Object(map)) = serde_json::from_str::<serde_json::Value>(json) else {
+        return Vec::new();
+    };
+
+    let mut warnings = Vec::new();
+    let mut recognised = 0;
+    for key in map.keys() {
+        if KNOWN_KEYS.contains(&key.as_str()) {
+            recognised += 1;
+            continue;
+        }
+        let hint = suggest_key(key)
+            .map(|known| format!(" (did you mean `{known}`?)"))
+            .unwrap_or_default();
+        warnings.push(format!("unknown config key `{key}`{hint}"));
+    }
+    if recognised == 0 {
+        warnings.push(format!(
+            "config has no recognised keys, defaults will be used (valid keys: {})",
+            KNOWN_KEYS.join(", ")
+        ));
+    }
+    warnings
+}
+
+fn suggest_key(key: &str) -> Option<&'static str> {
+    let lower = key.to_lowercase();
+    KNOWN_KEYS
+        .iter()
+        .map(|known| (*known, edit_distance(&lower, &known.to_lowercase())))
+        .filter(|(_, distance)| *distance <= 2)
+        .min_by_key(|(_, distance)| *distance)
+        .map(|(known, _)| known)
+}
+
+fn edit_distance(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        row = next_row(&row, ca, &b, i + 1);
+    }
+    row[b.len()]
+}
+
+fn next_row(prev: &[usize], ca: char, b: &[char], first: usize) -> Vec<usize> {
+    let mut row = vec![first];
+    for (j, cb) in b.iter().enumerate() {
+        let cost = usize::from(ca != *cb);
+        row.push((prev[j + 1] + 1).min(row[j] + 1).min(prev[j] + cost));
+    }
+    row
 }
 
 /// Merge CLI arguments with the loaded config file, using CLI > config > defaults.
@@ -197,7 +269,7 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::{evaluate_config, find_config, load_config};
+    use super::{config_warnings, evaluate_config, find_config, load_config};
 
     fn temp_dir() -> PathBuf {
         let nonce = SystemTime::now()
@@ -273,6 +345,38 @@ mod tests {
 
         assert!(evaluate_config(&config_path).is_ok());
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn warns_about_typos_with_suggestion() {
+        let warnings = config_warnings(r#"{"treshold":90,"excludes":[]}"#);
+        assert!(warnings
+            .iter()
+            .any(|w| w.contains("`treshold`") && w.contains("`threshold`")));
+        assert!(warnings
+            .iter()
+            .any(|w| w.contains("`excludes`") && w.contains("`exclude`")));
+        assert!(warnings.iter().any(|w| w.contains("no recognised keys")));
+    }
+
+    #[test]
+    fn warns_when_config_is_empty() {
+        let warnings = config_warnings("{}");
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("no recognised keys"));
+    }
+
+    #[test]
+    fn valid_config_has_no_warnings() {
+        let warnings = config_warnings(r#"{"threshold":90,"exclude":["a"]}"#);
+        assert_eq!(warnings.len(), 0);
+    }
+
+    #[test]
+    fn warns_about_unknown_key_alongside_valid_ones() {
+        let warnings = config_warnings(r#"{"threshold":90,"bogusthing":1}"#);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("`bogusthing`") && !warnings[0].contains("did you mean"));
     }
 
     #[test]
