@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.4
+
+### Patch Changes
+
+- [#56](https://github.com/An631/qualitas/pull/56) [`44ccf0e`](https://github.com/An631/qualitas/commit/44ccf0e2d2e4d047d34f96ceb32a62ec3f16accd) Thanks [@An631](https://github.com/An631)! - Warn on stderr about unrecognised config keys (with a "did you mean" suggestion) and about config files with no recognised keys, instead of silently using defaults. Fixes [#55](https://github.com/An631/qualitas/issues/55).
+
 ## 0.5.3
 
 ### Patch Changes
