@@ -206,16 +206,18 @@ fn edit_distance(a: &str, b: &str) -> usize {
     let b: Vec<char> = b.chars().collect();
     let mut row: Vec<usize> = (0..=b.len()).collect();
     for (i, ca) in a.chars().enumerate() {
-        let mut prev = row[0];
-        row[0] = i + 1;
-        for (j, cb) in b.iter().enumerate() {
-            let cost = usize::from(ca != *cb);
-            let next = (row[j + 1] + 1).min(row[j] + 1).min(prev + cost);
-            prev = row[j + 1];
-            row[j + 1] = next;
-        }
+        row = next_row(&row, ca, &b, i + 1);
     }
     row[b.len()]
+}
+
+fn next_row(prev: &[usize], ca: char, b: &[char], first: usize) -> Vec<usize> {
+    let mut row = vec![first];
+    for (j, cb) in b.iter().enumerate() {
+        let cost = usize::from(ca != *cb);
+        row.push((prev[j + 1] + 1).min(row[j] + 1).min(prev[j] + cost));
+    }
+    row
 }
 
 /// Merge CLI arguments with the loaded config file, using CLI > config > defaults.
