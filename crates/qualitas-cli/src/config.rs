@@ -368,7 +368,8 @@ mod tests {
 
     #[test]
     fn valid_config_has_no_warnings() {
-        assert!(config_warnings(r#"{"threshold":90,"exclude":["a"]}"#).is_empty());
+        let warnings = config_warnings(r#"{"threshold":90,"exclude":["a"]}"#);
+        assert_eq!(warnings.len(), 0);
     }
 
     #[test]
